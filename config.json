@@ -1,0 +1,7 @@
+{
+  "root": "root",
+  "password": "password",
+  "port": 8080,
+  "listen_addr": "127.0.0.1",
+  "rules": []
+}

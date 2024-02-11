@@ -1,0 +1,7 @@
+[workspace]
+members=[
+    "./penetrator",
+    "./penetrator-server",
+    "./common",
+    "mio_demo",
+]
