@@ -4,4 +4,5 @@ members=[
     "./penetrator-server",
     "./common",
     "mio_demo",
+    "penetrator-ui/src-tauri",
 ]
