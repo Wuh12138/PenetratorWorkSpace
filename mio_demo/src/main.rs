@@ -1,9 +1,8 @@
-use mio::net::{TcpListener, TcpStream};
+use mio::net::TcpListener;
 use std::io::{Read, Write};
-use std::ptr::read;
 
 const SERVER: mio::Token = mio::Token(0);
-const CLIENT: mio::Token = mio::Token(1);
+
 fn main() {
     let mut listener = TcpListener::bind("127.0.0.1:8080".parse().unwrap()).unwrap();
     let mut poll = mio::Poll::new().unwrap();

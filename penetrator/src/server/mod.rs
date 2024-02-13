@@ -1,84 +1,45 @@
 pub mod tcpmap;
 pub mod udpmap;
 
-use crate::server::tcpmap::TcpMap;
-use common::rule;
-use mio::net::UdpSocket;
-use mio::net::{TcpListener, TcpStream};
-use std::process::exit;
-use std::sync::mpsc::Receiver;
+use common::{rule, ForwardItem, ServerTrait};
+
+use mio::net::TcpStream;
+
 use std::thread;
-use std::thread::sleep;
+
+use common::{forward, ForwardControlMsg, ForwardControlResponse, MapTrait};
 use std::time::Duration;
 
-trait MapTrait {
-    fn update_once(&mut self) -> std::io::Result<()>;
-    //fn destroy(&mut self) -> std::io::Result<()>;
-    fn is_valid(&self) -> bool;
-}
+use self::{tcpmap::TcpMap, udpmap::UdpMap};
 
+static mut TCP_UID: u128 = 0;
 pub struct LocalServer {
-    tcpmap_sender: std::sync::mpsc::Sender<tcpmap::TcpMap>,
-    udpmap_sender: std::sync::mpsc::Sender<udpmap::UdpMap>,
+    tcpctl_sender: std::sync::mpsc::Sender<ForwardControlMsg<TcpMap>>,
+    udpctl_sender: std::sync::mpsc::Sender<ForwardControlMsg<UdpMap>>,
+
+    tcprsp_recver: std::sync::mpsc::Receiver<ForwardControlResponse>,
+    udprsp_recver: std::sync::mpsc::Receiver<ForwardControlResponse>,
+    tcpmap_handle: thread::JoinHandle<()>,
+    udpmap_handle: thread::JoinHandle<()>,
 }
 
 impl LocalServer {
     pub fn new() -> Self {
-        let (tcpmap_sender, tcpmap_recver) = std::sync::mpsc::channel();
-        let (udpmap_sender, udpmap_recver) = std::sync::mpsc::channel();
-        Self::forward(tcpmap_recver);
-        Self::forward(udpmap_recver);
+        let (tcpctl_sender, tcpctl_recver) = std::sync::mpsc::channel();
+        let (tcprsp_sender, tcprsp_recver) = std::sync::mpsc::channel();
+        let (udpctl_sender, udpctl_recver) = std::sync::mpsc::channel();
+        let (udprsp_sender, udprsp_recver) = std::sync::mpsc::channel();
+        let handle1 = forward(tcpctl_recver, tcprsp_sender);
+        let handle2 = forward(udpctl_recver, udprsp_sender);
 
         Self {
-            tcpmap_sender,
-            udpmap_sender,
+            tcpctl_sender,
+            udpctl_sender,
+            tcprsp_recver,
+            udprsp_recver,
+            tcpmap_handle: handle1,
+            udpmap_handle: handle2,
         }
-    }
-
-    fn forward<T>(receiver: Receiver<T>) -> thread::JoinHandle<()>
-    where
-        T: MapTrait + Send + 'static,
-    {
-        let mut handle = thread::spawn(move || {
-            let mut list = Vec::new();
-            let mut invalid_list = Vec::new();
-            let mut receiver = receiver;
-            loop {
-                if list.is_empty() {
-                    match receiver.recv() {
-                        Ok(item) => {
-                            list.push(item);
-                        }
-                        Err(_) => {
-                            break;
-                        }
-                    }
-                }
-
-                for (i, item) in list.iter_mut().enumerate() {
-                    if item.is_valid() {
-                        item.update_once().unwrap();
-                    } else {
-                        //item.destroy().unwrap();
-                        invalid_list.push(i);
-                    }
-                }
-
-                for i in invalid_list.iter().rev() {
-                    list.swap_remove(*i);
-                }
-
-                match receiver.try_recv() {
-                    Ok(item) => {
-                        list.push(item);
-                    }
-                    Err(_) => {
-                        continue;
-                    }
-                }
-            }
-        });
-        handle
     }
 
     pub fn add_tcpmap(
@@ -100,7 +61,7 @@ impl LocalServer {
         let mut stream =
             TcpStream::connect(format!("{}:{}", remote_host, remote_port).parse().unwrap())
                 .unwrap();
-        let mut remote_tcpmap_port = 0;
+        let remote_tcpmap_port = 0;
 
         let mut poll = mio::Poll::new().unwrap();
         let mut events = mio::Events::with_capacity(16);
@@ -142,6 +103,67 @@ impl LocalServer {
             remote_tcpmap_port,
             stream,
         );
-        self.tcpmap_sender.send(tcpmap).unwrap();
+        let item = ForwardItem::<TcpMap> {
+            uid: unsafe { TCP_UID },
+            item: tcpmap,
+        };
+        unsafe {
+            TCP_UID += 1;
+        }
+        self.tcpctl_sender
+            .send(ForwardControlMsg::Add(item))
+            .unwrap();
+    }
+
+}
+
+impl ServerTrait for LocalServer {
+    fn get_tcp_map_list(&self) -> Vec<common::ItemInfo> {
+        self.tcpctl_sender
+            .send(ForwardControlMsg::GetInfoList)
+            .unwrap();
+        match self.tcprsp_recver.recv().unwrap() {
+            ForwardControlResponse::InfoList(list) => list,
+            _ => vec![],
+        }
+    }
+    fn get_tcp_map_with_uid(&self, uid: u128) -> Option<common::ItemInfo> {
+        self.tcpctl_sender
+            .send(ForwardControlMsg::GetInfo(uid))
+            .unwrap();
+        match self.tcprsp_recver.recv().unwrap() {
+            ForwardControlResponse::Info(item) => Some(item),
+            _ => None,
+        }
+    }
+    fn get_udp_map_list(&self) -> Vec<common::ItemInfo> {
+        self.udpctl_sender
+            .send(ForwardControlMsg::GetInfoList)
+            .unwrap();
+        match self.udprsp_recver.recv().unwrap() {
+            ForwardControlResponse::InfoList(list) => list,
+            _ => vec![],
+        }
+    }
+    fn get_udp_map_with_uid(&self, uid: u128) -> Option<common::ItemInfo> {
+        self.udpctl_sender
+            .send(ForwardControlMsg::GetInfo(uid))
+            .unwrap();
+        match self.udprsp_recver.recv().unwrap() {
+            ForwardControlResponse::Info(item) => Some(item),
+            _ => None,
+        }
+    }
+    fn remove_tcp_map(&mut self, uid: u128) -> std::io::Result<()> {
+        self.tcpctl_sender
+            .send(ForwardControlMsg::Remove(uid))
+            .unwrap();
+        Ok(())
+    }
+    fn remove_udp_map(&mut self, uid: u128) -> std::io::Result<()> {
+        self.udpctl_sender
+            .send(ForwardControlMsg::Remove(uid))
+            .unwrap();
+        Ok(())
     }
 }

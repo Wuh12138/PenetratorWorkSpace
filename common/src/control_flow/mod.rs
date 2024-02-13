@@ -1,5 +1,4 @@
 use mio::net::TcpStream;
-use std::arch::x86_64::_rdrand32_step;
 use std::io::{Read, Write};
 
 pub use crate::rule;

@@ -9,7 +9,7 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let server = server::Server::new();
+        let mut server = server::Server::new();
         server.run();
     }
 }

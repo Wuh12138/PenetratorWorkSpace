@@ -241,4 +241,17 @@ impl super::MapTrait for TcpMap {
     fn is_valid(&self) -> bool {
         self.is_valid
     }
+
+    fn get_info(&self) -> common::ItemInfo {
+        common::ItemInfo {
+            uid: 0,
+            local_addr: self.lit_pub.local_addr().unwrap().ip().to_string(),
+            local_port: self.lit_pub.local_addr().unwrap().port(),
+            remote_addr: self.lit_clt.local_addr().unwrap().ip().to_string(),
+            remote_port: self.lit_clt.local_addr().unwrap().port(),
+            protocol: common::MapProtocol::TCP,
+        }
+    
+
+    }
 }

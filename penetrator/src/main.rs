@@ -17,7 +17,7 @@ fn main() {
         21212u16,
     );
 
-    while true {
+    loop {
         std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }

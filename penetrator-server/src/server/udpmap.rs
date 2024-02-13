@@ -24,4 +24,7 @@ impl super::MapTrait for UdpMap {
     fn is_valid(&self) -> bool {
         true
     }
+    fn get_info(&self) -> common::ItemInfo {
+        todo!()
+    }
 }

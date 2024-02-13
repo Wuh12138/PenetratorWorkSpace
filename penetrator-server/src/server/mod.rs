@@ -1,37 +1,37 @@
 pub mod tcpmap;
 pub mod udpmap;
-use crate::authentification;
+
 use crate::{
     config::{self},
     control_flow::{recv_notify, NOTIFY_AUTHEN_RESP},
 };
-use common::control_flow::{notify_authen, notify_port, NOTIFY_PORT_TO_NEW_CONN_RESP};
-use mio::{
-    event::Source,
-    net::{TcpListener, TcpStream},
-};
+use common::{control_flow::notify_authen, ForwardControlMsg, ForwardControlResponse, ForwardItem, ServerTrait};
+use mio::
+    net::{TcpListener, TcpStream}
+;
 use mio::{Events, Interest, Poll, Token};
-use std::fmt::format;
-use std::sync::mpsc::Receiver;
-use std::{
-    sync::mpsc::{channel, Sender},
-    thread,
-};
+
+use std::{borrow::Borrow, option, sync::mpsc::{channel, Sender}};
+
+use common::{MapTrait,forward};
 
 use self::{tcpmap::TcpMap, udpmap::UdpMap};
 
-pub trait MapTrait {
-    fn update_once(&mut self) -> std::io::Result<()>;
-    fn destroy(self) -> std::io::Result<()>;
-    fn is_valid(&self) -> bool;
-}
-
 pub struct Server {
     pub listener: TcpListener,
+    tcpctl_sender: Option<Sender<ForwardControlMsg<TcpMap>>>,
+    udpctl_sender: Option<Sender<ForwardControlMsg<UdpMap>>>,
+    tcprsp_recver: Option<std::sync::mpsc::Receiver<ForwardControlResponse>>,
+    udprsp_recver: Option<std::sync::mpsc::Receiver<ForwardControlResponse>>,
+    tcpmap_handle: Option<std::thread::JoinHandle<()>>,
+    udpmap_handle: Option<std::thread::JoinHandle<()>>,
 }
 
 const EVENTS_CAPACITY: usize = 32;
 
+
+static mut TCP_UID: u128 = 0;
+static mut UDP_UID: u128 = 0;
 impl Server {
     pub fn new() -> Self {
         let glconfig = crate::config::CONFIG.lock().unwrap();
@@ -42,59 +42,38 @@ impl Server {
         )
         .unwrap();
         drop(glconfig);
-        Self { listener }
+        Self {
+            listener,
+            tcpctl_sender: None,
+            udpctl_sender: None,
+            tcprsp_recver: None,
+            udprsp_recver: None,
+            tcpmap_handle: None,
+            udpmap_handle: None,
+        }
     }
 
-    fn forward<T>(receiver: Receiver<T>) -> thread::JoinHandle<()>
-    where
-        T: MapTrait + Send + 'static,
-    {
-        let mut handle = thread::spawn(move || {
-            let mut list = Vec::new();
-            let mut invalid_list = Vec::new();
-            let mut receiver = receiver;
-            loop {
-                if list.is_empty() {
-                    match receiver.recv() {
-                        Ok(item) => {
-                            list.push(item);
-                        }
-                        Err(_) => {
-                            break;
-                        }
-                    }
-                }
 
-                for (i, item) in list.iter_mut().enumerate() {
-                    if item.is_valid() {
-                        item.update_once().unwrap();
-                    } else {
-                        //item.destroy().unwrap();
-                        invalid_list.push(i);
-                    }
-                }
 
-                while let Some(i) = invalid_list.pop() {
-                    list.swap_remove(i);
-                }
+    pub fn run(&mut self) {
+        let (tcpctl_sender, tcpctl_recver) = std::sync::mpsc::channel();
+        let (tcprsp_sender, tcprsp_recver) = std::sync::mpsc::channel();
+        let (udpctl_sender, udpctl_recver) = std::sync::mpsc::channel();
+        let (udprsp_sender, udprsp_recver) = std::sync::mpsc::channel();
+        self.tcpctl_sender = Some(tcpctl_sender.clone());
+        self.udpctl_sender = Some(udpctl_sender.clone());
+        self.tcprsp_recver = Some(tcprsp_recver);
+        self.udprsp_recver = Some(udprsp_recver);
 
-                match receiver.try_recv() {
-                    Ok(item) => {
-                        list.push(item);
-                    }
-                    Err(_) => {}
-                }
-            }
-        });
-        handle
-    }
+        
+        let handle1=forward(tcpctl_recver,tcprsp_sender);
+        let handle2=forward(udpctl_recver,udprsp_sender);
 
-    pub fn run(mut self) {
-        let (tcpmap_sender, tcpmap_recver) = channel::<TcpMap>();
-        let (udpmap_sender, udpmap_recver) = channel::<UdpMap>();
+        self.tcpmap_handle = Some(handle1);
+        self.udpmap_handle = Some(handle2);
+     
 
-        Self::forward(tcpmap_recver);
-        // Self::forward(udpmap_recver);
+
 
         let mut poll = Poll::new().unwrap();
         let mut events = Events::with_capacity(EVENTS_CAPACITY);
@@ -137,11 +116,11 @@ impl Server {
                                 poll.registry().deregister(&mut stream).unwrap();
                                 rest_token_list.push(token.0);
 
-                                let whether_send = Server::handle_control_msg(
+                                Server::handle_control_msg(
                                     stream,
                                     msg,
-                                    tcpmap_sender.clone(),
-                                    udpmap_sender.clone(),
+                                    tcpctl_sender.clone(),
+                                    udpctl_sender.clone(),
                                 );
                             }
                             None => {
@@ -157,17 +136,17 @@ impl Server {
     }
 
     fn handle_control_msg(
-        mut stream: TcpStream,
+        stream: TcpStream,
         msg: common::control_flow::ControlMsg,
-        tcpmap_sender: Sender<TcpMap>,
-        udpmap_sender: Sender<UdpMap>,
+        tcpctl_sender: Sender<ForwardControlMsg<TcpMap>>,
+        udpctl_sender: Sender<ForwardControlMsg<UdpMap>>,
     ) {
         match msg.flag {
             NOTIFY_AUTHEN_RESP => {
                 let rule = config::Rule::from_u8(&msg.data).unwrap();
                 let is_ok = crate::authentification::check(&rule).unwrap();
                 if is_ok {
-                    Self::distribute_connection(tcpmap_sender, udpmap_sender, stream, rule);
+                    Self::distribute_connection(tcpctl_sender, udpctl_sender, stream, rule);
                 }
             }
             _ => {}
@@ -175,22 +154,95 @@ impl Server {
     }
 
     pub fn distribute_connection(
-        tcpmap_sender: Sender<TcpMap>,
-        udpmap_sender: Sender<UdpMap>,
-        mut stream: TcpStream,
+        tcpmap_sender: Sender<ForwardControlMsg<TcpMap>>,
+        udpctl_sender: Sender<ForwardControlMsg<UdpMap>>,
+        stream: TcpStream,
         rule: config::Rule,
     ) {
         let protocol = rule.protocol.as_str();
         match protocol {
             "tcp" => {
                 let tcpmap = tcpmap::TcpMap::new(stream, rule.port_to_pub);
-                tcpmap_sender.send(tcpmap).unwrap();
+                let item=ForwardItem::<TcpMap>{
+                    uid:unsafe{TCP_UID},
+                    item:tcpmap,
+                };
+                unsafe{TCP_UID+=1;}
+                tcpmap_sender.send(ForwardControlMsg::Add(item)).unwrap();
+                
             }
             "udp" => {
                 let udpmap = udpmap::UdpMap::new(stream, rule.port_to_pub);
-                udpmap_sender.send(udpmap).unwrap();
+                let item=ForwardItem::<UdpMap>{
+                    uid:unsafe{UDP_UID},
+                    item:udpmap,
+                };
+                unsafe{UDP_UID+=1;}
+                udpctl_sender.send(ForwardControlMsg::Add(item)).unwrap();
             }
             _ => {}
         }
+    }
+}
+
+impl ServerTrait for Server{
+    fn get_tcp_map_list(&self) -> Vec<common::ItemInfo> {
+        self.tcpctl_sender.as_ref().unwrap()
+            .send(ForwardControlMsg::GetInfoList)
+            .unwrap();
+        let list=self.tcprsp_recver.as_ref().unwrap().recv().unwrap();
+        match list {
+            ForwardControlResponse::InfoList(list) => list,
+            _ => vec![],
+        }
+    }
+    fn get_tcp_map_with_uid(&self, uid: u128) -> Option<common::ItemInfo> {
+        self.tcpctl_sender.as_ref().unwrap()
+            .send(ForwardControlMsg::GetInfo(uid))
+            .unwrap();
+
+        let item=self.tcprsp_recver.as_ref().unwrap().recv().unwrap();
+        match item {
+            ForwardControlResponse::Info(item) => Some(item),
+            _ => None,
+        }
+    }
+
+    fn get_udp_map_list(&self) -> Vec<common::ItemInfo> {
+        self.udpctl_sender.as_ref().unwrap()
+            .send(ForwardControlMsg::GetInfoList)
+            .unwrap();
+
+        let list=self.udprsp_recver.as_ref().unwrap().recv().unwrap();
+        match list {
+            ForwardControlResponse::InfoList(list) => list,
+            _ => vec![],
+        }
+    }
+
+    fn get_udp_map_with_uid(&self, uid: u128) -> Option<common::ItemInfo> {
+        self.udpctl_sender.as_ref().unwrap()
+            .send(ForwardControlMsg::GetInfo(uid))
+            .unwrap();
+
+        let item=self.udprsp_recver.as_ref().unwrap().recv().unwrap();
+        match item {
+            ForwardControlResponse::Info(item) => Some(item),
+            _ => None,
+        }
+    }
+
+    fn remove_tcp_map(&mut self, uid: u128) -> std::io::Result<()> {
+        self.tcpctl_sender.as_ref().unwrap()
+            .send(ForwardControlMsg::Remove(uid))
+            .unwrap();
+        Ok(())
+    }
+    
+    fn remove_udp_map(&mut self, uid: u128) -> std::io::Result<()> {
+        self.udpctl_sender.as_ref().unwrap()
+            .send(ForwardControlMsg::Remove(uid))
+            .unwrap();
+        Ok(())
     }
 }

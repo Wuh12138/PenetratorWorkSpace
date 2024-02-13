@@ -254,7 +254,29 @@ impl MapTrait for TcpMap {
         Ok(())
     }
 
+    fn destroy(self) -> std::io::Result<()> {
+        drop(self.control_stream);
+        for conn in self.tcp_list {
+            if let Some(mut stream) = conn {
+                TcpStream::shutdown(&stream, std::net::Shutdown::Both).unwrap();
+            }
+        }
+
+        Ok(())
+    }
+
     fn is_valid(&self) -> bool {
         self.is_valid
+    }
+
+    fn get_info(&self) -> common::ItemInfo {
+        common::ItemInfo {
+            uid: 0,
+            local_addr: self.local_addr.clone(),
+            local_port: self.local_port,
+            remote_addr: self.remote_addr.clone(),
+            remote_port: self.remote_port,
+            protocol: common::MapProtocol::TCP,
+        }
     }
 }
