@@ -31,7 +31,7 @@ pub struct TcpMap {
 }
 
 const EVENTS_CAPACITY: usize = 32;
-const TIMEOUT: std::time::Duration = std::time::Duration::from_millis(100);
+
 const CONTROL_STREAM_TOKEN: mio::Token = mio::Token(0);
 impl TcpMap {
     pub fn new(
@@ -137,7 +137,7 @@ impl TcpMap {
 
 impl MapTrait for TcpMap {
     fn update_once(&mut self) -> std::io::Result<()> {
-        self.poll.poll(&mut self.events, Some(TIMEOUT))?; // timeout 100ms
+        self.poll.poll(&mut self.events, Some(common::TIMEOUT)).unwrap(); // timeout 100ms
         for event in self.events.iter() {
             match event.token() {
                 CONTROL_STREAM_TOKEN => {
@@ -148,7 +148,7 @@ impl MapTrait for TcpMap {
                                     &mut self.control_stream,
                                     CONTROL_STREAM_TOKEN,
                                     Interest::READABLE,
-                                )?;
+                                ).unwrap();
                                 msg
                             }
                             Err(e) => match e.kind() {
@@ -205,7 +205,7 @@ impl MapTrait for TcpMap {
                     if !(is_success && is_success2) {
                         self.poll
                             .registry()
-                            .deregister(self.tcp_list[the_index].as_mut().unwrap())?;
+                            .deregister(self.tcp_list[the_index].as_mut().unwrap()).unwrap();
                         TcpStream::shutdown(
                             self.tcp_list[the_index].as_mut().unwrap(),
                             std::net::Shutdown::Both,
@@ -216,8 +216,7 @@ impl MapTrait for TcpMap {
                                     // do nothing
                                 }
                                 _ => {
-                                    dbg!(e);
-                                    panic!();
+                                    //dbg!(e);
                                 }
                             }
                         });
@@ -227,7 +226,7 @@ impl MapTrait for TcpMap {
 
                         self.poll
                             .registry()
-                            .deregister(self.tcp_list[another_index].as_mut().unwrap())?;
+                            .deregister(self.tcp_list[another_index].as_mut().unwrap()).unwrap();
                         TcpStream::shutdown(
                             self.tcp_list[another_index].as_mut().unwrap(),
                             std::net::Shutdown::Both,
@@ -238,8 +237,7 @@ impl MapTrait for TcpMap {
                                     // do nothing
                                 }
                                 _ => {
-                                    dbg!(e);
-                                    panic!();
+                                    //
                                 }
                             }
                         });

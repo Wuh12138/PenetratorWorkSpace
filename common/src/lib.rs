@@ -9,6 +9,7 @@ pub mod control_flow;
 pub mod rule;
 
 pub const BUF_SIZE: usize = 1024 * 100;
+pub const TIMEOUT: std::time::Duration = std::time::Duration::from_micros(50);
 
 pub struct RestData {
     pub sent_size: usize,
@@ -48,7 +49,7 @@ pub fn get_token_and_buf(
     }
 }
 
-// static mut TOTAL_TIME: u128 = 0;
+
 pub fn fo_to(
     tcp_list: &mut Vec<Option<TcpStream>>,
     recv_token: Token,

@@ -40,6 +40,7 @@
           width: '50%',
           height: '50%',
         }"
+        @click="delete_callback"
       >
         删除
       </a-button>
@@ -152,7 +153,7 @@ import { TrConfig } from "../command";
 
 const store = useStatusStore();
 const { columns, data } = storeToRefs(store);
-const { updateDataStatus, initDate, add_config, start_map, stop_map } = store;
+const { updateDataStatus, initDate, add_config, start_map, stop_map,remove_config } = store;
 
 // initDate();
 initDate();
@@ -202,23 +203,11 @@ const formData: TrConfig = reactive({
 const form_open = ref(false);
 const create_callback = async () => {
   message.destroy();
-  // const test_config: TrConfig = {
-  //   name: "test",
-  //   password: "test",
-  //   port_to_pub: 12345,
-  //   protocol: "tcp",
-
-  //   local_addr: "127.0.0.1",
-  //   local_port: 5173,
-  //   remote_host: "47.92.175.152",
-  //   remote_port: 21212,
-  // };
   form_open.value = true;
-  
-
 };
 const create_finish=()=>{
-  add_config(formData);
+  const config=Object.assign({},formData);
+  add_config(config);
   form_open.value = false;
   formData.name = "";
   formData.password = "";
@@ -228,6 +217,17 @@ const create_finish=()=>{
   formData.local_port = 0;
   formData.remote_host = "";
   formData.remote_port = 0;
+  message.success("创建成功", 1);
+}
+
+const delete_callback=()=>{
+  message.destroy();
+  for (let i = 0; i < state.selectedRowKeys.length; i++) {
+    const index = state.selectedRowKeys[i];
+    remove_config(index);
+  }
+  message.success("删除成功", 1);
+  state.selectedRowKeys = [];
 }
 
 </script>

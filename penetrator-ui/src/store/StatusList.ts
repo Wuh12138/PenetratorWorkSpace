@@ -1,6 +1,14 @@
 import { defineStore } from "pinia";
-import {reactive} from "vue";
-import { TrConfig,get_config_list,update_config_list,start_a_map,stop_a_map,get_running_item,TrItemInfo } from "../command";
+import { reactive } from "vue";
+import {
+  TrConfig,
+  get_config_list,
+  update_config_list,
+  start_a_map,
+  stop_a_map,
+  get_running_item,
+  TrItemInfo,
+} from "../command";
 
 export interface TableDateFormat {
   key: number;
@@ -48,13 +56,12 @@ export const useStatusStore = defineStore("status", () => {
     },
   ]);
 
-  let config_list:TrConfig[] = reactive([]);
+  let config_list: TrConfig[] = reactive([]);
   const uid_map_key = reactive(new Map<number, number>());
-  
+
   const data = reactive<TableDateFormat[]>([]);
 
-
-  function confit_to_data(config:TrConfig):TableDateFormat {
+  function confit_to_data(config: TrConfig): TableDateFormat {
     return {
       key: data.length,
       uid: -1,
@@ -75,14 +82,14 @@ export const useStatusStore = defineStore("status", () => {
       data.push(confit_to_data(config));
     }
   }
-  
+
   let is_query_running = false;
   async function updateDataStatus() {
     if (is_query_running) {
       return;
     }
     is_query_running = true;
-    const running_item:TrItemInfo[] = await get_running_item();
+    const running_item: TrItemInfo[] = await get_running_item();
     is_query_running = false;
     for (const item of data) {
       item.status = false;
@@ -94,28 +101,46 @@ export const useStatusStore = defineStore("status", () => {
         data[key].status = true;
       }
     }
+
+    for (const item of data) {
+      if (item.uid !== -1 && !item.status) {
+        item.uid = -1;
+      }
+    }
   }
 
-  async function add_config(config:TrConfig) {
+  async function add_config(config: TrConfig) {
     config_list.push(config);
     data.push(confit_to_data(config));
     await update_config_list(config_list);
-
   }
 
-  async function start_map(key:number) {
+  async function remove_config(key: number) {
+    config_list.splice(key, 1);
+    data.splice(key, 1);
+    await update_config_list(config_list);
+    initDate();
+    for(let[key,value]of uid_map_key.entries()){
+      if(value>key){
+        uid_map_key.set(key,value-1);
+      }
+    }
+    
+  }
+
+  async function start_map(key: number) {
     let old_uid = data[key].uid;
     if (old_uid !== -1) {
-      return ;
+      return;
     }
 
-    const uid = await  start_a_map(config_list[key]);
+    const uid = await start_a_map(config_list[key]);
     if (uid !== -1) {
       data[key].uid = uid;
       uid_map_key.set(uid, key);
     }
   }
-  async function stop_map(key:number) {
+  async function stop_map(key: number) {
     const uid = data[key].uid;
     if (uid !== -1) {
       await stop_a_map(uid);
@@ -124,6 +149,14 @@ export const useStatusStore = defineStore("status", () => {
     }
   }
 
-
-  return { columns, data, updateDataStatus,initDate,add_config,start_map,stop_map};
+  return {
+    columns,
+    data,
+    updateDataStatus,
+    initDate,
+    add_config,
+    remove_config,
+    start_map,
+    stop_map,
+  };
 });

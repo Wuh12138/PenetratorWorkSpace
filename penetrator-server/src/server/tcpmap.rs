@@ -1,9 +1,9 @@
 use common::control_flow::ControlMsg;
-use common::{fo_to, get_token_and_buf, RestData, BUF_SIZE};
+use common::{fo_to, get_token_and_buf, RestData};
 use mio::net::{TcpListener, TcpStream};
 use mio::{Interest, Token};
 use std::collections::{HashMap, VecDeque};
-use std::io::{self, Read, Write};
+use std::io;
 
 pub struct TcpMap {
     control_channel: TcpStream,
@@ -30,7 +30,7 @@ const EVENTS_CAPACITY: usize = 32;
 
 impl TcpMap {
     pub fn new(mut control_channel: TcpStream, pub_port: u16) -> Self {
-        let mut poll = mio::Poll::new().unwrap();
+        let  poll = mio::Poll::new().unwrap();
         poll.registry()
             .register(
                 &mut control_channel,
@@ -60,7 +60,7 @@ impl TcpMap {
 
         let events = mio::Events::with_capacity(EVENTS_CAPACITY);
 
-        let mut tcp_list = vec![None, None, None];
+        let  tcp_list = vec![None, None, None];
         let buf_list = vec![
             Box::new(RestData::new()),
             Box::new(RestData::new()),
@@ -85,7 +85,7 @@ impl TcpMap {
     }
 
     pub fn try_new(mut control_channel: TcpStream, pub_port: u16) -> io::Result<Self> {
-        let mut poll = mio::Poll::new()?;
+        let  poll = mio::Poll::new()?;
         poll.registry().register(
             &mut control_channel,
             CONTROL_CHANNEL_TOKEN,
@@ -111,7 +111,7 @@ impl TcpMap {
 
         let events = mio::Events::with_capacity(EVENTS_CAPACITY);
 
-        let mut tcp_list = vec![None, None, None];
+        let tcp_list = vec![None, None, None];
         let buf_list = vec![
             Box::new(RestData::new()),
             Box::new(RestData::new()),
@@ -140,7 +140,7 @@ impl super::MapTrait for TcpMap {
     fn update_once(&mut self) -> std::io::Result<()> {
         self.poll.poll(
             &mut self.events,
-            Option::Some(std::time::Duration::from_millis(100)),
+            Option::Some(common::TIMEOUT),
         )?;
         for event in self.events.iter() {
             match event.token() {
