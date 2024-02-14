@@ -154,7 +154,7 @@ impl MapTrait for TcpMap {
                             Err(e) => match e.kind() {
                                 std::io::ErrorKind::WouldBlock => {
                                     dbg!(e);
-                                    break;
+                                    continue;
                                 }
                                 _ => {
                                     let e = dbg!(e);

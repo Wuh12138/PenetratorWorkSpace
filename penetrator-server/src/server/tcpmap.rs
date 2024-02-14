@@ -145,16 +145,33 @@ impl super::MapTrait for TcpMap {
         for event in self.events.iter() {
             match event.token() {
                 CONTROL_CHANNEL_TOKEN => {
-                    let msg: Option<ControlMsg> =
-                        common::control_flow::recv_notify(&mut self.control_channel).ok();
-                    match msg {
-                        Some(msg) => match msg.flag {
-                            common::control_flow::NOTIFY_PORT_TO_NEW_CONN_RESP => {}
-                            _ => {}
-                        },
-                        None => {
-                            self.is_valid = false;
-                        }
+
+                    let msg:ControlMsg=
+                        match common::control_flow::recv_notify(&mut self.control_channel) {
+                            Ok(msg) =>{
+                                self.poll.registry().reregister(
+                                    &mut self.control_channel,
+                                    CONTROL_CHANNEL_TOKEN,
+                                    Interest::READABLE,
+                                ).unwrap();
+                                msg
+                            }
+                            Err(e) =>match e.kind() {
+                                std::io::ErrorKind::WouldBlock=>{
+                                    dbg!(e);
+                                    continue;;
+                                }
+                                _=>{
+                                    dbg!(e);
+                                    self.is_valid = false;
+                                    break;
+                                }
+                            }
+                            
+                        };
+                    match msg.flag {
+                        common::control_flow::NOTIFY_PORT_TO_NEW_CONN_RESP => {}
+                        _ => {}
                     }
                 }
                 LIT_CLT_TOKEN => {
