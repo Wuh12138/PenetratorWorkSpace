@@ -162,7 +162,13 @@ impl Server {
         let protocol = rule.protocol.as_str();
         match protocol {
             "tcp" => {
-                let tcpmap = tcpmap::TcpMap::new(stream, rule.port_to_pub);
+                let tcpmap = match tcpmap::TcpMap::try_new(stream, rule.port_to_pub){
+                    Ok(tcpmap)=>tcpmap,
+                    Err(e)=>{
+                        dbg!("Error:{}",e);
+                        return;
+                    }
+                };
                 let item=ForwardItem::<TcpMap>{
                     uid:unsafe{TCP_UID},
                     item:tcpmap,

@@ -3,7 +3,7 @@ use common::{fo_to, get_token_and_buf, RestData, BUF_SIZE};
 use mio::net::{TcpListener, TcpStream};
 use mio::{Interest, Token};
 use std::collections::{HashMap, VecDeque};
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 
 pub struct TcpMap {
     control_channel: TcpStream,
@@ -82,6 +82,57 @@ impl TcpMap {
 
             is_valid: true,
         }
+    }
+
+    pub fn try_new(mut control_channel: TcpStream, pub_port: u16) -> io::Result<Self> {
+        let mut poll = mio::Poll::new()?;
+        poll.registry().register(
+            &mut control_channel,
+            CONTROL_CHANNEL_TOKEN,
+            Interest::READABLE,
+        )?;
+
+        let config = crate::config::CONFIG.lock().unwrap();
+        let mut lit_clt =
+            TcpListener::bind(format!("{}:{}", config.listen_addr, 0u16).parse().unwrap()).unwrap();
+        poll.registry()
+            .register(&mut lit_clt, LIT_CLT_TOKEN, Interest::READABLE)?;
+
+        let port = lit_clt.local_addr().unwrap().port();
+        common::control_flow::notify_port(&mut control_channel, port)?;
+
+        let mut lit_pub = TcpListener::bind(
+            format!("{}:{}", config.listen_addr, pub_port)
+                .parse()
+                .unwrap(),
+        )?;
+        poll.registry()
+            .register(&mut lit_pub, LIT_PUB_TOKEN, Interest::READABLE)?;
+
+        let events = mio::Events::with_capacity(EVENTS_CAPACITY);
+
+        let mut tcp_list = vec![None, None, None];
+        let buf_list = vec![
+            Box::new(RestData::new()),
+            Box::new(RestData::new()),
+            Box::new(RestData::new()),
+        ];
+
+        Ok(Self {
+            control_channel,
+            poll,
+            events,
+            lit_pub,
+            lit_clt,
+            tcp_list,
+            rest_token_list: vec![],
+            tcp_pair: HashMap::new(),
+            pub_conn_queue: VecDeque::new(),
+
+            buf_list,
+
+            is_valid: true,
+        })
     }
 }
 
@@ -191,7 +242,6 @@ impl super::MapTrait for TcpMap {
                                 }
                                 _ => {
                                     dbg!(e);
-                                    panic!();
                                 }
                             }
                         });
@@ -213,7 +263,6 @@ impl super::MapTrait for TcpMap {
                                 }
                                 _ => {
                                     dbg!(e);
-                                    panic!();
                                 }
                             }
                         });
@@ -251,7 +300,5 @@ impl super::MapTrait for TcpMap {
             remote_port: self.lit_clt.local_addr().unwrap().port(),
             protocol: common::MapProtocol::TCP,
         }
-    
-
     }
 }

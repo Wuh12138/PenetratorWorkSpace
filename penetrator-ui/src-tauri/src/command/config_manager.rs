@@ -31,6 +31,7 @@ pub async fn update_config_list<R: Runtime>(app: tauri::AppHandle<R>, window: ta
 #[tauri::command]
 pub async fn get_config_list<R: Runtime>(app: tauri::AppHandle<R>, window: tauri::Window<R>) -> Result<Vec<TrConfig>, String> {
     let biniry=std::fs::read(CONFIG_ITEM_PATH).unwrap_or_else(|e|{
+        dbg!(e);
         let biniry=bincode::serialize(&Vec::<TrConfig>::new()).unwrap();
         std::fs::write(CONFIG_ITEM_PATH,&biniry).unwrap();
         biniry

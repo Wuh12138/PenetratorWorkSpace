@@ -1,5 +1,5 @@
 import { defineStore } from "pinia";
-import { computed, reactive } from "vue";
+import {reactive} from "vue";
 import { TrConfig,get_config_list,update_config_list,start_a_map,stop_a_map,get_running_item,TrItemInfo } from "../command";
 
 export interface TableDateFormat {
@@ -37,9 +37,9 @@ export const useStatusStore = defineStore("status", () => {
       key: "remote_ip",
     },
     {
-      title: "远程端口",
-      dataIndex: "remote_port",
-      key: "remote_port",
+      title: "公网端口",
+      dataIndex: "port_to_pub",
+      key: "port_to_pub",
     },
     {
       title: "状态",
@@ -48,7 +48,7 @@ export const useStatusStore = defineStore("status", () => {
     },
   ]);
 
-  const config_list:TrConfig[] = reactive([]);
+  let config_list:TrConfig[] = reactive([]);
   const uid_map_key = reactive(new Map<number, number>());
   
   const data = reactive<TableDateFormat[]>([]);
@@ -69,7 +69,7 @@ export const useStatusStore = defineStore("status", () => {
   }
 
   async function initDate() {
-    const config_list = await get_config_list();
+    config_list = await get_config_list();
     data.length = 0;
     for (const config of config_list) {
       data.push(confit_to_data(config));
@@ -97,9 +97,10 @@ export const useStatusStore = defineStore("status", () => {
   }
 
   async function add_config(config:TrConfig) {
-    await update_config_list(config_list);
     config_list.push(config);
     data.push(confit_to_data(config));
+    await update_config_list(config_list);
+
   }
 
   async function start_map(key:number) {
