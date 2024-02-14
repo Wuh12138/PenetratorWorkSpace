@@ -1,14 +1,13 @@
 pub mod tcpmap;
 pub mod udpmap;
 
-use common::{rule, ForwardItem, ServerTrait};
+use common::{authentification::AuthError, rule, ForwardItem, ServerTrait};
 
 use mio::net::TcpStream;
 
 use std::thread;
 
 use common::{forward, ForwardControlMsg, ForwardControlResponse, MapTrait};
-use std::time::Duration;
 
 use self::{tcpmap::TcpMap, udpmap::UdpMap};
 
@@ -50,6 +49,8 @@ impl LocalServer {
         remote_port: u16,
     ) {
     }
+
+
     pub fn add_tcpmap_with_rule(
         &mut self,
         rule: rule::Rule,
@@ -57,7 +58,7 @@ impl LocalServer {
         local_port: u16,
         remote_host: String,
         remote_port: u16,
-    ) {
+    )->Result<u128,AuthError> {
         let mut stream =
             TcpStream::connect(format!("{}:{}", remote_host, remote_port).parse().unwrap())
                 .unwrap();
@@ -70,11 +71,16 @@ impl LocalServer {
             .unwrap();
         'outer: loop {
             poll.poll(&mut events, None).unwrap();
+
             for event in events.iter() {
                 match event.token() {
                     mio::Token(0) => match common::control_flow::recv_notify(&mut stream) {
                         Ok(msg) => match msg.flag {
                             common::control_flow::NOTIFY_AUTHEN => {
+                                poll.registry()
+                                .reregister(&mut stream, mio::Token(0), mio::Interest::READABLE)
+                                .unwrap();
+
                                 common::control_flow::ack_authen(&mut stream, &rule).unwrap();
                                 break 'outer;
                             }
@@ -90,9 +96,6 @@ impl LocalServer {
                 };
             }
         }
-
-        poll.poll(&mut events, Some(Duration::from_millis(100)))
-            .unwrap();
 
         poll.registry().deregister(&mut stream).unwrap();
 
@@ -113,6 +116,7 @@ impl LocalServer {
         self.tcpctl_sender
             .send(ForwardControlMsg::Add(item))
             .unwrap();
+        Ok(unsafe { TCP_UID - 1 })
     }
 
 }

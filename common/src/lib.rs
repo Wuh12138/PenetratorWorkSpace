@@ -4,6 +4,7 @@ use std::io::{Read, Write};
 use std::sync::mpsc::{Receiver, Sender};
 use std::thread;
 
+pub mod authentification;
 pub mod control_flow;
 pub mod rule;
 
@@ -123,8 +124,7 @@ pub enum MapProtocol {
     UDP,
 }
 
-pub struct ItemInfo{
-
+pub struct ItemInfo {
     pub uid: u128,
 
     pub local_addr: String,
@@ -134,15 +134,17 @@ pub struct ItemInfo{
     pub protocol: MapProtocol,
 }
 
-pub struct ForwardItem<T> 
-where T: MapTrait+Send+ 'static
+pub struct ForwardItem<T>
+where
+    T: MapTrait + Send + 'static,
 {
     pub uid: u128,
     pub item: T,
 }
 
 pub enum ForwardControlMsg<T>
-where T: MapTrait + Send + 'static
+where
+    T: MapTrait + Send + 'static,
 {
     Add(ForwardItem<T>),
     Remove(u128),
@@ -150,14 +152,13 @@ where T: MapTrait + Send + 'static
     GetInfoList,
 }
 
-pub enum ForwardControlResponse
-{
+pub enum ForwardControlResponse {
     Info(ItemInfo),
     InfoList(Vec<ItemInfo>),
+    Null,
     Ok,
     Err,
 }
-
 
 pub trait MapTrait {
     fn update_once(&mut self) -> std::io::Result<()>;
@@ -167,91 +168,99 @@ pub trait MapTrait {
 }
 
 /// # Note swap_remove may not clear all invalid items once
-pub fn forward<T>(receiver: Receiver<ForwardControlMsg<T>>,sender:Sender<ForwardControlResponse>) -> thread::JoinHandle<()>
-    where
-        T: MapTrait + Send + 'static,
-    {
-        let handle = thread::spawn(move || {
-            let mut list = Vec::new();
-            let mut uid_index_map= std::collections::HashMap::<u128,usize>::new();
-            let mut invalid_list = Vec::new();
-            let receiver = receiver;
+pub fn forward<T>(
+    receiver: Receiver<ForwardControlMsg<T>>,
+    sender: Sender<ForwardControlResponse>,
+) -> thread::JoinHandle<()>
+where
+    T: MapTrait + Send + 'static,
+{
+    let handle = thread::spawn(move || {
+        let mut list = Vec::new();
+        let mut uid_index_map = std::collections::HashMap::<u128, usize>::new();
+        let mut invalid_list = Vec::new();
+        let receiver = receiver;
 
-            loop {
-                if list.is_empty() {
-                    match receiver.recv() {
-                        Ok(item) => {
-                            match item {
-                                ForwardControlMsg::Add(item) => {
-                                    uid_index_map.insert(item.uid,0);
-                                    list.push(item);
-                                
-                                }
-                                _ => {continue;}
-                                
-                            }
+        loop {
+            if list.is_empty() {
+                match receiver.recv() {
+                    Ok(item) => match item {
+                        ForwardControlMsg::Add(item) => {
+                            uid_index_map.insert(item.uid, 0);
+                            list.push(item);
                         }
-                        Err(_) => {}
-                    }
-                }
-
-                for (i, item) in list.iter_mut().enumerate() {
-                    if item.item.is_valid() {
-                        item.item.update_once().unwrap();
-                    } else {
-                        invalid_list.push(i);
-                    }
-                }
-
-                while let Some(i) = invalid_list.pop() {
-                    if i>=list.len() {
-                        invalid_list.clear();
-                        continue;
-                    }
-                    uid_index_map.remove(&list[i].uid);  
-                    * uid_index_map.get_mut(&list.last().unwrap().uid).unwrap() = i;
-                    list.swap_remove(i);  // swap_remove may not clear all invalid items once
-                }
-
-                match receiver.try_recv() {
-                    Ok(item) => {
-                        match item {
-                            ForwardControlMsg::Add(item) => {
-                                uid_index_map.insert(item.uid,list.len());
-                                list.push(item);
-                            }
-                            ForwardControlMsg::Remove(uid) => {
-                                if let Some(index) = uid_index_map.remove(&uid) {
-                                    *uid_index_map.get_mut(&list.last().unwrap().uid).unwrap() = index;
-
-                                    list.swap_remove(index);  // swap_remove may not clear all invalid items once
-                                }
-                            }
-                            ForwardControlMsg::GetInfo(uid) => {
-                                if let Some(index) = uid_index_map.get(&uid) {
-                                    let mut item_info = list[*index].item.get_info();
-                                    item_info.uid = list[*index].uid;
-                                    sender.send(ForwardControlResponse::Info(item_info)).unwrap();
-                                }
-                            }
-                            ForwardControlMsg::GetInfoList => {
-                                let mut info_list = Vec::new();
-                                for item in &list {
-                                    let mut item_info = item.item.get_info();
-                                    item_info.uid = item.uid;
-                                    info_list.push(item_info);
-                                }
-                                sender.send(ForwardControlResponse::InfoList(info_list)).unwrap();
-                            }
+                        _ => {
+                            sender.send(ForwardControlResponse::Null).unwrap();
+                            continue;
                         }
-                    }
+                    },
                     Err(_) => {}
                 }
             }
-        });
-        handle
-    }
 
+            for (i, item) in list.iter_mut().enumerate() {
+                if item.item.is_valid() {
+                    item.item.update_once().unwrap();
+                } else {
+                    invalid_list.push(i);
+                }
+            }
+
+            while let Some(i) = invalid_list.pop() {
+                if i >= list.len() {
+                    invalid_list.clear();
+                    continue;
+                }
+
+                let uid = match list.last() {
+                    Some(item) => item.uid,
+                    None => break,
+                };
+                *uid_index_map.get_mut(&uid).unwrap() = i;
+                uid_index_map.remove(&list[i].uid);
+                list.swap_remove(i); // swap_remove may not clear all invalid items once
+            }
+
+            match receiver.try_recv() {
+                Ok(item) => match item {
+                    ForwardControlMsg::Add(item) => {
+                        uid_index_map.insert(item.uid, list.len());
+                        list.push(item);
+                    }
+                    ForwardControlMsg::Remove(uid) => {
+                        let index = match uid_index_map.get(&uid) {
+                            Some(index) => *index,
+                            None => continue,
+                        };
+                        invalid_list.push(index);
+                    }
+                    ForwardControlMsg::GetInfo(uid) => {
+                        if let Some(index) = uid_index_map.get(&uid) {
+                            let mut item_info = list[*index].item.get_info();
+                            item_info.uid = list[*index].uid;
+                            sender
+                                .send(ForwardControlResponse::Info(item_info))
+                                .unwrap();
+                        }
+                    }
+                    ForwardControlMsg::GetInfoList => {
+                        let mut info_list = Vec::new();
+                        for item in &list {
+                            let mut item_info = item.item.get_info();
+                            item_info.uid = item.uid;
+                            info_list.push(item_info);
+                        }
+                        sender
+                            .send(ForwardControlResponse::InfoList(info_list))
+                            .unwrap();
+                    }
+                },
+                Err(_) => {}
+            }
+        }
+    });
+    handle
+}
 
 pub trait ServerTrait {
     fn get_tcp_map_list(&self) -> Vec<ItemInfo>;
@@ -261,7 +270,6 @@ pub trait ServerTrait {
     fn remove_tcp_map(&mut self, uid: u128) -> std::io::Result<()>;
     fn remove_udp_map(&mut self, uid: u128) -> std::io::Result<()>;
 }
-
 
 #[cfg(test)]
 mod tests {

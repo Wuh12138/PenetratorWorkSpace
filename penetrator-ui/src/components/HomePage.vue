@@ -51,6 +51,10 @@
       :columns="columns" 
       :data-source="data"
       :row-selection="{ selectedRowKeys: state.selectedRowKeys, onChange: onSelectChange }"
+      :style="{
+        width: '100%',
+        height: '100%',
+      }"
       >
         <template #bodyCell="{column,record}">
           <span v-if="column.key === 'status'">
@@ -70,10 +74,16 @@ import { message } from "ant-design-vue";
 import { reactive, ref } from "vue";
 import { useStatusStore } from "../store/StatusList";
 import { storeToRefs } from "pinia";
-import { create_config,TrConfig } from "../command";
+import { TrConfig } from "../command";
 
-const{data,columns} = storeToRefs(useStatusStore());
 
+const store=useStatusStore();
+const { columns, data}=storeToRefs(store);
+const {updateDataStatus,initDate,add_config,start_map,stop_map}=store;
+
+// initDate();
+initDate();
+setInterval(updateDataStatus, 300);
 
 
 const state = reactive({
@@ -87,11 +97,19 @@ const onSelectChange = (selectedRowKeys: []) => {
 
 const start_callback = () => {
   message.destroy();
+  for (let i = 0; i < state.selectedRowKeys.length; i++) {
+    const index = state.selectedRowKeys[i];
+    start_map(index);
+  }
   message.success("启动成功", 1);
 };
 
 const stop_callback = () => {
   message.destroy();
+  for (let i = 0; i < state.selectedRowKeys.length; i++) {
+    const index = state.selectedRowKeys[i];
+    stop_map(index);
+  }
   message.info("服务已停止", 1);
 };
 
@@ -112,10 +130,7 @@ const create_callback =async () => {
   };
 
   crb_disable.value = true;
-  await create_config(test_config);
-
-  
-
+  add_config(test_config);
   message.success("创建成功", 1);
 };
 

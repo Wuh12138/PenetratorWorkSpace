@@ -1,24 +1,6 @@
 use crate::config;
-#[derive(Debug)]
-pub enum Error {
-    RuleNotFound,
-    RuleAlreadyExists,
-    RuleNotMatch,
-    RuleMatch,
-    RuleNotExists,
-    RuleExists,
-    RuleNotMatched,
-    RuleMatched,
-    RuleNotAdded,
-    RuleAdded,
-    RuleNotRemoved,
-    RuleRemoved,
-    RuleNotUpdated,
-    RuleUpdated,
-    RuleNotChecked,
-    RuleChecked,
-}
-pub fn check(rule: &config::Rule) -> Result<bool, Error> {
+use common::authentification::AuthError;
+pub fn check(rule: &config::Rule) -> Result<bool, AuthError> {
     // TODO:
     Ok(true)
 }
