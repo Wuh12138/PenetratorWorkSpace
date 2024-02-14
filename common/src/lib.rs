@@ -205,6 +205,7 @@ pub fn forward<T>(receiver: Receiver<ForwardControlMsg<T>>,sender:Sender<Forward
 
                 while let Some(i) = invalid_list.pop() {
                     if i>=list.len() {
+                        invalid_list.clear();
                         continue;
                     }
                     uid_index_map.remove(&list[i].uid);  
