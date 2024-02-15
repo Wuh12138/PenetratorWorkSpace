@@ -142,28 +142,6 @@ impl MapTrait for TcpMap {
         for event in self.events.iter() {
             match event.token() {
                 CONTROL_STREAM_TOKEN => {
-                    // let msg: ControlMsg =
-                    //     match common::control_flow::recv_notify(&mut self.controller.stream) {
-                    //         Ok(msg) => {
-                    //             self.poll.registry().reregister(
-                    //                 &mut self.controller.stream,
-                    //                 CONTROL_STREAM_TOKEN,
-                    //                 Interest::READABLE,
-                    //             ).unwrap();
-                    //             msg
-                    //         }
-                    //         Err(e) => match e.kind() {
-                    //             std::io::ErrorKind::WouldBlock => {
-                    //                 dbg!(e);
-                    //                 continue;
-                    //             }
-                    //             _ => {
-                    //                 let e = dbg!(e);
-                    //                 self.is_valid = false;
-                    //                 break;
-                    //             }
-                    //         },
-                    //     };
 
                     let msg_vec = match self.controller.parse() {
                         Ok(Some(msg_vec)) => msg_vec,

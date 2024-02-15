@@ -79,6 +79,15 @@ pub fn fo_to(
                                 Interest::READABLE | Interest::WRITABLE,
                             )
                             .unwrap();
+
+                        poll.registry()
+                            .reregister(
+                                tcp_list[the_index].as_mut().unwrap(),
+                                recv_token,
+                                Interest::READABLE,
+                            )
+                            .unwrap();
+
                         break 'l;
                     } else {
                         is_success = false;

@@ -224,6 +224,7 @@ const delete_callback=()=>{
   message.destroy();
   for (let i = 0; i < state.selectedRowKeys.length; i++) {
     const index = state.selectedRowKeys[i];
+    stop_map(index);
     remove_config(index);
   }
   message.success("删除成功", 1);
