@@ -2,7 +2,7 @@ use common::control_flow::controller::Controller;
 use common::{fo_to, get_token_and_buf, RestData};
 use mio::net::{TcpListener, TcpStream};
 use mio::{Interest, Token};
-use std::collections::{HashMap, VecDeque};
+use std::collections::HashMap;
 use std::io;
 
 pub struct TcpMap {
@@ -17,7 +17,7 @@ pub struct TcpMap {
     rest_token_list: Vec<Token>,
     tcp_pair: HashMap<Token, Token>,
 
-    pub_conn_queue: VecDeque<TcpStream>,
+    //pub_conn_queue: VecDeque<TcpStream>,
 
     buf_list: Vec<Box<RestData>>,
 
@@ -77,7 +77,7 @@ impl TcpMap {
             tcp_list,
             rest_token_list: vec![],
             tcp_pair: HashMap::new(),
-            pub_conn_queue: VecDeque::new(),
+            //pub_conn_queue: VecDeque::new(),
 
             buf_list,
 
@@ -128,7 +128,7 @@ impl TcpMap {
             tcp_list,
             rest_token_list: vec![],
             tcp_pair: HashMap::new(),
-            pub_conn_queue: VecDeque::new(),
+            //pub_conn_queue: VecDeque::new(),
 
             buf_list,
 
@@ -165,9 +165,28 @@ impl super::MapTrait for TcpMap {
                     }
                 }
                 LIT_CLT_TOKEN => {
+                    let mut need=true;
                     while let Ok((mut stream, _)) = self.lit_clt.accept() {
-                        let mut pub_conn = self.pub_conn_queue.pop_front().unwrap();
-
+                        let mut pub_conn = match self.lit_pub.accept(){
+                            Ok((stream, _)) => stream,
+                            Err(e) => {
+                                match e.kind() {
+                                    std::io::ErrorKind::WouldBlock => {
+                                        while let Ok((stream, _)) = self.lit_clt.accept(){
+                                            drop(stream);
+                                        }
+                                        need = false;
+                                        break;
+                                    }
+                                    _ => {
+                                        dbg!(e);
+                                        self.is_valid = false;
+                                        return Ok(());
+                                    }
+                                }
+                            }
+                        };
+                        
                         let token = get_token_and_buf(
                             &mut self.tcp_list,
                             &mut self.rest_token_list,
@@ -194,19 +213,25 @@ impl super::MapTrait for TcpMap {
                         self.tcp_pair.insert(token, token_2);
                         self.tcp_pair.insert(token_2, token);
                     }
+                    if need{
+                        common::control_flow::notify_new_tcp_map_with_num(&mut self.controller.stream, 5)?;
+                    }
+
                 }
                 LIT_PUB_TOKEN => {
-                    let mut conn_num = 0u32;
-                    while let Ok((stream, _)) = self.lit_pub.accept() {
-                        self.pub_conn_queue.push_back(stream);
-                        conn_num += 1;
-                    }
-                    if conn_num > 0 {
-                        common::control_flow::notify_new_tcp_map_with_num(
-                            &mut self.controller.stream,
-                            conn_num,
-                        )?;
-                    }
+                    // let mut conn_num = 0u32;
+                    // while let Ok((stream, _)) = self.lit_pub.accept() {
+                    //     self.pub_conn_queue.push_back(stream);
+                    //     conn_num += 1;
+                    // }
+                    // if conn_num > 0 {
+                    //     common::control_flow::notify_new_tcp_map_with_num(
+                    //         &mut self.controller.stream,
+                    //         conn_num,
+                    //     )?;
+                    // }
+
+                    common::control_flow::notify_new_tcp_map_with_num(&mut self.controller.stream, 5)?;
                 }
                 conn_token => {
                     let is_exist = self.tcp_pair.contains_key(&conn_token);
