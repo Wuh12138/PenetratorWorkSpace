@@ -2,6 +2,7 @@ use mio::net::TcpStream;
 use std::io::{Read, Write};
 
 pub use crate::rule;
+pub mod controller;
 
 pub const NOTIFY_AUTHEN: u16 = 0x0001u16;
 pub const NOTIFY_AUTHEN_RESP: u16 = 0x0002u16;

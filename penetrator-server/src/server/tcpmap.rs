@@ -1,4 +1,4 @@
-use common::control_flow::ControlMsg;
+use common::control_flow::controller::Controller;
 use common::{fo_to, get_token_and_buf, RestData};
 use mio::net::{TcpListener, TcpStream};
 use mio::{Interest, Token};
@@ -6,7 +6,8 @@ use std::collections::{HashMap, VecDeque};
 use std::io;
 
 pub struct TcpMap {
-    control_channel: TcpStream,
+    //control_channel: TcpStream,
+    controller: Controller,
     poll: mio::Poll,
     events: mio::Events,
 
@@ -30,7 +31,7 @@ const EVENTS_CAPACITY: usize = 32;
 
 impl TcpMap {
     pub fn new(mut control_channel: TcpStream, pub_port: u16) -> Self {
-        let  poll = mio::Poll::new().unwrap();
+        let poll = mio::Poll::new().unwrap();
         poll.registry()
             .register(
                 &mut control_channel,
@@ -60,7 +61,7 @@ impl TcpMap {
 
         let events = mio::Events::with_capacity(EVENTS_CAPACITY);
 
-        let  tcp_list = vec![None, None, None];
+        let tcp_list = vec![None, None, None];
         let buf_list = vec![
             Box::new(RestData::new()),
             Box::new(RestData::new()),
@@ -68,7 +69,7 @@ impl TcpMap {
         ];
 
         Self {
-            control_channel,
+            controller: Controller::new(control_channel),
             poll,
             events,
             lit_pub,
@@ -85,7 +86,7 @@ impl TcpMap {
     }
 
     pub fn try_new(mut control_channel: TcpStream, pub_port: u16) -> io::Result<Self> {
-        let  poll = mio::Poll::new()?;
+        let poll = mio::Poll::new()?;
         poll.registry().register(
             &mut control_channel,
             CONTROL_CHANNEL_TOKEN,
@@ -119,7 +120,7 @@ impl TcpMap {
         ];
 
         Ok(Self {
-            control_channel,
+            controller: Controller::new(control_channel),
             poll,
             events,
             lit_pub,
@@ -138,40 +139,52 @@ impl TcpMap {
 
 impl super::MapTrait for TcpMap {
     fn update_once(&mut self) -> std::io::Result<()> {
-        self.poll.poll(
-            &mut self.events,
-            Option::Some(common::TIMEOUT),
-        )?;
+        self.poll
+            .poll(&mut self.events, Option::Some(common::TIMEOUT))?;
         for event in self.events.iter() {
             match event.token() {
                 CONTROL_CHANNEL_TOKEN => {
+                    // let msg:ControlMsg=
+                    //     match common::control_flow::recv_notify(&mut self.control_channel) {
+                    //         Ok(msg) =>{
+                    //             self.poll.registry().reregister(
+                    //                 &mut self.control_channel,
+                    //                 CONTROL_CHANNEL_TOKEN,
+                    //                 Interest::READABLE,
+                    //             ).unwrap();
+                    //             msg
+                    //         }
+                    //         Err(e) =>match e.kind() {
+                    //             std::io::ErrorKind::WouldBlock=>{
+                    //                 dbg!(e);
+                    //                 continue;
+                    //             }
+                    //             _=>{
+                    //                 dbg!(e);
+                    //                 self.is_valid = false;
+                    //                 break;
+                    //             }
+                    //         }
 
-                    let msg:ControlMsg=
-                        match common::control_flow::recv_notify(&mut self.control_channel) {
-                            Ok(msg) =>{
-                                self.poll.registry().reregister(
-                                    &mut self.control_channel,
-                                    CONTROL_CHANNEL_TOKEN,
-                                    Interest::READABLE,
-                                ).unwrap();
-                                msg
-                            }
-                            Err(e) =>match e.kind() {
-                                std::io::ErrorKind::WouldBlock=>{
-                                    dbg!(e);
-                                    continue;
-                                }
-                                _=>{
-                                    dbg!(e);
-                                    self.is_valid = false;
-                                    break;
-                                }
-                            }
-                            
-                        };
-                    match msg.flag {
-                        common::control_flow::NOTIFY_PORT_TO_NEW_CONN_RESP => {}
-                        _ => {}
+                    //     };
+                    let msg_vec = match self.controller.parse() {
+                        Ok(Some(msg_vec)) => msg_vec,
+                        Ok(None) => {
+                            self.is_valid = false;
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            dbg!(e);
+                            self.is_valid = false;
+                            return Ok(());
+                        }
+                    };
+
+                    for msg in msg_vec {
+                        match msg.flag {
+                            common::control_flow::NOTIFY_PORT_TO_NEW_CONN_RESP => {}
+                            _ => {}
+                        }
                     }
                 }
                 LIT_CLT_TOKEN => {
@@ -213,7 +226,7 @@ impl super::MapTrait for TcpMap {
                     }
                     if conn_num > 0 {
                         common::control_flow::notify_new_tcp_map_with_num(
-                            &mut self.control_channel,
+                            &mut self.controller.stream,
                             conn_num,
                         )?;
                     }
@@ -294,7 +307,7 @@ impl super::MapTrait for TcpMap {
     }
     fn destroy(mut self) -> std::io::Result<()> {
         drop(self.poll);
-        drop(self.control_channel);
+        drop(self.controller.stream);
         drop(self.lit_clt);
         drop(self.lit_pub);
         for stream in &mut self.tcp_list {

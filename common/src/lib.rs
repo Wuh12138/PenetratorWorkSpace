@@ -12,16 +12,16 @@ pub const BUF_SIZE: usize = 1024 * 100;
 pub const TIMEOUT: std::time::Duration = std::time::Duration::from_micros(50);
 
 pub struct RestData {
-    pub sent_size: usize,
-    pub size: usize,
+    pub indxs: usize,
+    pub indxe: usize,
     pub buf: Box<[u8; BUF_SIZE]>,
 }
 
 impl RestData {
     pub fn new() -> Self {
         Self {
-            sent_size: 0,
-            size: 0,
+            indxs: 0,
+            indxe: 0,
             buf: Box::new([0; BUF_SIZE]),
         }
     }
@@ -36,15 +36,15 @@ pub fn get_token_and_buf(
         let token = Token(tcp_list.len() as usize);
         tcp_list.push(None);
         buf_list.push(Box::new(RestData {
-            sent_size: 0,
-            size: 0,
+            indxs: 0,
+            indxe: 0,
             buf: Box::new([0; BUF_SIZE]),
         }));
         token
     } else {
         let token = rest_token_list.pop().unwrap();
-        buf_list[token.0 as usize].sent_size = 0;
-        buf_list[token.0 as usize].size = 0;
+        buf_list[token.0 as usize].indxs = 0;
+        buf_list[token.0 as usize].indxe = 0;
         token
     }
 }
@@ -61,14 +61,14 @@ pub fn fo_to(
     let the_index = recv_token.0 as usize;
     let another_index = send_token.0 as usize;
     'l: loop {
-        while buf.sent_size < buf.size {
+        while buf.indxs < buf.indxe {
             match tcp_list[another_index]
                 .as_mut()
                 .unwrap()
-                .write(&buf.buf[buf.sent_size..buf.size])
+                .write(&buf.buf[buf.indxs..buf.indxe])
             {
                 Ok(size) => {
-                    buf.sent_size += size;
+                    buf.indxs += size;
                 }
                 Err(e) => {
                     if e.kind() == std::io::ErrorKind::WouldBlock {
@@ -88,8 +88,8 @@ pub fn fo_to(
             }
         }
 
-        buf.sent_size = 0;
-        buf.size = 0;
+        buf.indxs = 0;
+        buf.indxe = 0;
 
         match tcp_list[the_index].as_mut().unwrap().read(&mut *buf.buf) {
             Ok(recv_size) => {
@@ -98,7 +98,7 @@ pub fn fo_to(
                     break 'l;
                 }
 
-                buf.size = recv_size;
+                buf.indxe = recv_size;
             }
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::WouldBlock {

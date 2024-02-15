@@ -5,7 +5,7 @@ use mio::net::TcpStream;
 use mio::{Interest, Token};
 use std::collections::HashMap;
 use std::io::{Read, Write};
-
+use common::control_flow::controller::Controller;
 enum OptionTcpStream {
     TcpStream(TcpStream),
     None,
@@ -16,7 +16,8 @@ pub struct TcpMap {
     local_port: u16,
     remote_addr: String,
     remote_port: u16,
-    control_stream: TcpStream,
+    //control_stream: TcpStream,
+    controller: Controller,
     buf_list: Vec<Box<RestData>>,
 
     poll: mio::Poll,
@@ -56,10 +57,10 @@ impl TcpMap {
             local_port,
             remote_addr,
             remote_port,
-            control_stream,
+            controller: Controller::new(control_stream),
             buf_list: vec![Box::new(RestData {
-                sent_size: 0,
-                size: 0,
+                indxs: 0,
+                indxe: 0,
                 buf: Box::new([0; BUF_SIZE]),
             })],
 
@@ -137,45 +138,64 @@ impl TcpMap {
 
 impl MapTrait for TcpMap {
     fn update_once(&mut self) -> std::io::Result<()> {
-        self.poll.poll(&mut self.events, Some(common::TIMEOUT)).unwrap(); // timeout 100ms
+        self.poll.poll(&mut self.events, Some(common::TIMEOUT)).unwrap(); 
         for event in self.events.iter() {
             match event.token() {
                 CONTROL_STREAM_TOKEN => {
-                    let msg: ControlMsg =
-                        match common::control_flow::recv_notify(&mut self.control_stream) {
-                            Ok(msg) => {
-                                self.poll.registry().reregister(
-                                    &mut self.control_stream,
-                                    CONTROL_STREAM_TOKEN,
-                                    Interest::READABLE,
-                                ).unwrap();
-                                msg
-                            }
-                            Err(e) => match e.kind() {
-                                std::io::ErrorKind::WouldBlock => {
-                                    dbg!(e);
-                                    continue;
-                                }
-                                _ => {
-                                    let e = dbg!(e);
-                                    self.is_valid = false;
-                                    break;
-                                }
-                            },
-                        };
-                    TcpMap::handle_control_msg(
-                        msg,
-                        &self.local_addr,
-                        &self.local_port,
-                        &self.remote_addr,
-                        &mut self.remote_port,
-                        &mut self.tcp_list,
-                        &mut self.rest_token_list,
-                        &mut self.buf_list,
-                        &mut self.tcp_pair,
-                        &mut self.control_stream,
-                        &mut self.poll,
-                    );
+                    // let msg: ControlMsg =
+                    //     match common::control_flow::recv_notify(&mut self.controller.stream) {
+                    //         Ok(msg) => {
+                    //             self.poll.registry().reregister(
+                    //                 &mut self.controller.stream,
+                    //                 CONTROL_STREAM_TOKEN,
+                    //                 Interest::READABLE,
+                    //             ).unwrap();
+                    //             msg
+                    //         }
+                    //         Err(e) => match e.kind() {
+                    //             std::io::ErrorKind::WouldBlock => {
+                    //                 dbg!(e);
+                    //                 continue;
+                    //             }
+                    //             _ => {
+                    //                 let e = dbg!(e);
+                    //                 self.is_valid = false;
+                    //                 break;
+                    //             }
+                    //         },
+                    //     };
+
+                    let msg_vec = match self.controller.parse() {
+                        Ok(Some(msg_vec)) => msg_vec,
+                        Ok(None) => {
+                            self.is_valid = false;
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            dbg!(e);
+                            self.is_valid = false;
+                            return Ok(());
+                        }
+                    };
+
+                    for msg in msg_vec {
+                        TcpMap::handle_control_msg(
+                            msg,
+                            &self.local_addr,
+                            &self.local_port,
+                            &self.remote_addr,
+                            &mut self.remote_port,
+                            &mut self.tcp_list,
+                            &mut self.rest_token_list,
+                            &mut self.buf_list,
+                            &mut self.tcp_pair,
+                            &mut self.controller.stream,
+                            &mut self.poll,
+                        );
+                    }
+
+
+
                 }
                 conn_token => {
                     let is_exist = self.tcp_pair.contains_key(&conn_token);
@@ -253,7 +273,7 @@ impl MapTrait for TcpMap {
     }
 
     fn destroy(self) -> std::io::Result<()> {
-        drop(self.control_stream);
+        drop(self.controller.stream);
         for conn in self.tcp_list {
             if let Some(mut stream) = conn {
                 TcpStream::shutdown(&stream, std::net::Shutdown::Both).unwrap();
