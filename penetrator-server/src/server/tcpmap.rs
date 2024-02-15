@@ -159,7 +159,7 @@ impl super::MapTrait for TcpMap {
                             Err(e) =>match e.kind() {
                                 std::io::ErrorKind::WouldBlock=>{
                                     dbg!(e);
-                                    continue;;
+                                    continue;
                                 }
                                 _=>{
                                     dbg!(e);

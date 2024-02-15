@@ -128,7 +128,7 @@ impl TcpMap {
             common::control_flow::NOTIFY_PORT_TO_CONN => {
                 let data = msg.data;
                 *remote_port = u16::from_be_bytes(data.as_slice().try_into().unwrap());
-                common::control_flow::ack_notify_port(control_stream).unwrap();
+                //common::control_flow::ack_notify_port(control_stream).unwrap();
             }
             _ => {}
         }

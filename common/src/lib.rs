@@ -168,7 +168,6 @@ pub trait MapTrait {
     fn is_valid(&self) -> bool;
 }
 
-/// # Note swap_remove may not clear all invalid items once
 pub fn forward<T>(
     receiver: Receiver<ForwardControlMsg<T>>,
     sender: Sender<ForwardControlResponse>,
@@ -208,10 +207,6 @@ where
             }
 
             while let Some(i) = invalid_list.pop() {
-                if i >= list.len() {
-                    invalid_list.clear();
-                    continue;
-                }
 
                 let uid = match list.last() {
                     Some(item) => item.uid,
@@ -219,7 +214,7 @@ where
                 };
                 *uid_index_map.get_mut(&uid).unwrap() = i;
                 uid_index_map.remove(&list[i].uid);
-                list.swap_remove(i); // swap_remove may not clear all invalid items once
+                list.swap_remove(i); 
             }
 
             match receiver.try_recv() {
