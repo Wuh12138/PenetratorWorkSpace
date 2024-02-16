@@ -69,7 +69,6 @@ impl Controller {
             let size = match self.stream.read(&mut self.buf[self.indxe..]) {
                 Ok(size) =>{
                     if size == 0 {
-                        dbg!("connection closed");
                         return Ok(None);
                     }else{
                         size

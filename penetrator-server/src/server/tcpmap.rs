@@ -143,7 +143,6 @@ impl super::MapTrait for TcpMap {
                         Ok(Some(msg_vec)) => msg_vec,
                         Ok(None) => {
                             self.is_valid = false;
-                            dbg!("control channel closed");
                             return Ok(());
                         }
                         Err(e) => {
@@ -157,7 +156,7 @@ impl super::MapTrait for TcpMap {
                         match msg.flag {
                             common::control_flow::NOTIFY_PORT_TO_NEW_CONN_RESP => {}
                             KEEP_ALIVE=>{
-                                
+
                             }
                             _ => {}
                         }
