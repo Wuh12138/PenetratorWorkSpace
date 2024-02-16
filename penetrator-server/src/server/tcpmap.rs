@@ -219,17 +219,6 @@ impl super::MapTrait for TcpMap {
 
                 }
                 LIT_PUB_TOKEN => {
-                    // let mut conn_num = 0u32;
-                    // while let Ok((stream, _)) = self.lit_pub.accept() {
-                    //     self.pub_conn_queue.push_back(stream);
-                    //     conn_num += 1;
-                    // }
-                    // if conn_num > 0 {
-                    //     common::control_flow::notify_new_tcp_map_with_num(
-                    //         &mut self.controller.stream,
-                    //         conn_num,
-                    //     )?;
-                    // }
 
                     common::control_flow::notify_new_tcp_map_with_num(&mut self.controller.stream, 5)?;
                 }

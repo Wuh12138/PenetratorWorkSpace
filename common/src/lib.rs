@@ -72,13 +72,6 @@ pub fn fo_to(
                 }
                 Err(e) => {
                     if e.kind() == std::io::ErrorKind::WouldBlock {
-                        poll.registry()
-                            .reregister(
-                                tcp_list[another_index].as_mut().unwrap(),
-                                send_token,
-                                Interest::READABLE | Interest::WRITABLE,
-                            )
-                            .unwrap();
 
                         poll.registry()
                             .reregister(
@@ -111,13 +104,6 @@ pub fn fo_to(
             }
             Err(e) => {
                 if e.kind() == std::io::ErrorKind::WouldBlock {
-                    poll.registry()
-                        .reregister(
-                            tcp_list[another_index].as_mut().unwrap(),
-                            send_token,
-                            Interest::READABLE,
-                        )
-                        .unwrap();
                     break 'l;
                 } else {
                     is_success = false;

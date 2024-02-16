@@ -2,14 +2,9 @@ use crate::server::MapTrait;
 use common::control_flow::ControlMsg;
 use common::{fo_to, get_token_and_buf, RestData, BUF_SIZE};
 use mio::net::TcpStream;
-use mio::{Interest, Token};
+use mio::Token;
 use std::collections::HashMap;
-use std::io::{Read, Write};
 use common::control_flow::controller::Controller;
-enum OptionTcpStream {
-    TcpStream(TcpStream),
-    None,
-}
 
 pub struct TcpMap {
     local_addr: String,
@@ -76,7 +71,7 @@ impl TcpMap {
     }
 
     fn handle_control_msg(
-        mut msg: ControlMsg,
+        msg: ControlMsg,
         local_addr: &String,
         local_port: &u16,
         remote_addr: &String,
@@ -85,14 +80,14 @@ impl TcpMap {
         rest_token_list: &mut Vec<Token>,
         buf_list: &mut Vec<Box<RestData>>,
         tcp_pair: &mut HashMap<Token, Token>,
-        control_stream: &mut TcpStream,
+        _control_stream: &mut TcpStream,
         poll: &mut mio::Poll,
     ) {
         match msg.flag {
             common::control_flow::NOTIFY_NEW_TCP_MAP => {
                 let data = msg.data;
                 let num = u32::from_be_bytes(data.as_slice().try_into().unwrap());
-                for i in 0..num {
+                for _ in 0..num {
                     let mut stream_to_local = TcpStream::connect(
                         format!("{}:{}", local_addr, local_port).parse().unwrap(),
                     )
@@ -253,7 +248,7 @@ impl MapTrait for TcpMap {
     fn destroy(self) -> std::io::Result<()> {
         drop(self.controller.stream);
         for conn in self.tcp_list {
-            if let Some(mut stream) = conn {
+            if let Some(stream) = conn {
                 TcpStream::shutdown(&stream, std::net::Shutdown::Both).unwrap();
             }
         }

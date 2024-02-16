@@ -5,15 +5,16 @@ use crate::{
     config::{self},
     control_flow::{recv_notify, NOTIFY_AUTHEN_RESP},
 };
-use common::{control_flow::notify_authen, ForwardControlMsg, ForwardControlResponse, ForwardItem, ServerTrait};
-use mio::
-    net::{TcpListener, TcpStream}
-;
+use common::{
+    control_flow::notify_authen, ForwardControlMsg, ForwardControlResponse, ForwardItem,
+    ServerTrait,
+};
+use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
 
-use std::{borrow::Borrow, option, sync::mpsc::{channel, Sender}};
+use std::sync::mpsc::Sender;
 
-use common::{MapTrait,forward};
+use common::{forward, MapTrait};
 
 use self::{tcpmap::TcpMap, udpmap::UdpMap};
 
@@ -28,7 +29,6 @@ pub struct Server {
 }
 
 const EVENTS_CAPACITY: usize = 32;
-
 
 static mut TCP_UID: u128 = 0;
 static mut UDP_UID: u128 = 0;
@@ -53,8 +53,6 @@ impl Server {
         }
     }
 
-
-
     pub fn run(&mut self) {
         let (tcpctl_sender, tcpctl_recver) = std::sync::mpsc::channel();
         let (tcprsp_sender, tcprsp_recver) = std::sync::mpsc::channel();
@@ -65,15 +63,11 @@ impl Server {
         self.tcprsp_recver = Some(tcprsp_recver);
         self.udprsp_recver = Some(udprsp_recver);
 
-        
-        let handle1=forward(tcpctl_recver,tcprsp_sender);
-        let handle2=forward(udpctl_recver,udprsp_sender);
+        let handle1 = forward(tcpctl_recver, tcprsp_sender);
+        let handle2 = forward(udpctl_recver, udprsp_sender);
 
         self.tcpmap_handle = Some(handle1);
         self.udpmap_handle = Some(handle2);
-     
-
-
 
         let mut poll = Poll::new().unwrap();
         let mut events = Events::with_capacity(EVENTS_CAPACITY);
@@ -162,28 +156,31 @@ impl Server {
         let protocol = rule.protocol.as_str();
         match protocol {
             "tcp" => {
-                let tcpmap = match tcpmap::TcpMap::try_new(stream, rule.port_to_pub){
-                    Ok(tcpmap)=>tcpmap,
-                    Err(e)=>{
-                        dbg!("Error:{}",e);
+                let tcpmap = match tcpmap::TcpMap::try_new(stream, rule.port_to_pub) {
+                    Ok(tcpmap) => tcpmap,
+                    Err(e) => {
+                        dbg!("Error:{}", e);
                         return;
                     }
                 };
-                let item=ForwardItem::<TcpMap>{
-                    uid:unsafe{TCP_UID},
-                    item:tcpmap,
+                let item = ForwardItem::<TcpMap> {
+                    uid: unsafe { TCP_UID },
+                    item: tcpmap,
                 };
-                unsafe{TCP_UID+=1;}
+                unsafe {
+                    TCP_UID += 1;
+                }
                 tcpmap_sender.send(ForwardControlMsg::Add(item)).unwrap();
-                
             }
             "udp" => {
                 let udpmap = udpmap::UdpMap::new(stream, rule.port_to_pub);
-                let item=ForwardItem::<UdpMap>{
-                    uid:unsafe{UDP_UID},
-                    item:udpmap,
+                let item = ForwardItem::<UdpMap> {
+                    uid: unsafe { UDP_UID },
+                    item: udpmap,
                 };
-                unsafe{UDP_UID+=1;}
+                unsafe {
+                    UDP_UID += 1;
+                }
                 udpctl_sender.send(ForwardControlMsg::Add(item)).unwrap();
             }
             _ => {}
@@ -191,23 +188,27 @@ impl Server {
     }
 }
 
-impl ServerTrait for Server{
+impl ServerTrait for Server {
     fn get_tcp_map_list(&self) -> Vec<common::ItemInfo> {
-        self.tcpctl_sender.as_ref().unwrap()
+        self.tcpctl_sender
+            .as_ref()
+            .unwrap()
             .send(ForwardControlMsg::GetInfoList)
             .unwrap();
-        let list=self.tcprsp_recver.as_ref().unwrap().recv().unwrap();
+        let list = self.tcprsp_recver.as_ref().unwrap().recv().unwrap();
         match list {
             ForwardControlResponse::InfoList(list) => list,
             _ => vec![],
         }
     }
     fn get_tcp_map_with_uid(&self, uid: u128) -> Option<common::ItemInfo> {
-        self.tcpctl_sender.as_ref().unwrap()
+        self.tcpctl_sender
+            .as_ref()
+            .unwrap()
             .send(ForwardControlMsg::GetInfo(uid))
             .unwrap();
 
-        let item=self.tcprsp_recver.as_ref().unwrap().recv().unwrap();
+        let item = self.tcprsp_recver.as_ref().unwrap().recv().unwrap();
         match item {
             ForwardControlResponse::Info(item) => Some(item),
             _ => None,
@@ -215,11 +216,13 @@ impl ServerTrait for Server{
     }
 
     fn get_udp_map_list(&self) -> Vec<common::ItemInfo> {
-        self.udpctl_sender.as_ref().unwrap()
+        self.udpctl_sender
+            .as_ref()
+            .unwrap()
             .send(ForwardControlMsg::GetInfoList)
             .unwrap();
 
-        let list=self.udprsp_recver.as_ref().unwrap().recv().unwrap();
+        let list = self.udprsp_recver.as_ref().unwrap().recv().unwrap();
         match list {
             ForwardControlResponse::InfoList(list) => list,
             _ => vec![],
@@ -227,11 +230,13 @@ impl ServerTrait for Server{
     }
 
     fn get_udp_map_with_uid(&self, uid: u128) -> Option<common::ItemInfo> {
-        self.udpctl_sender.as_ref().unwrap()
+        self.udpctl_sender
+            .as_ref()
+            .unwrap()
             .send(ForwardControlMsg::GetInfo(uid))
             .unwrap();
 
-        let item=self.udprsp_recver.as_ref().unwrap().recv().unwrap();
+        let item = self.udprsp_recver.as_ref().unwrap().recv().unwrap();
         match item {
             ForwardControlResponse::Info(item) => Some(item),
             _ => None,
@@ -239,14 +244,18 @@ impl ServerTrait for Server{
     }
 
     fn remove_tcp_map(&mut self, uid: u128) -> std::io::Result<()> {
-        self.tcpctl_sender.as_ref().unwrap()
+        self.tcpctl_sender
+            .as_ref()
+            .unwrap()
             .send(ForwardControlMsg::Remove(uid))
             .unwrap();
         Ok(())
     }
-    
+
     fn remove_udp_map(&mut self, uid: u128) -> std::io::Result<()> {
-        self.udpctl_sender.as_ref().unwrap()
+        self.udpctl_sender
+            .as_ref()
+            .unwrap()
             .send(ForwardControlMsg::Remove(uid))
             .unwrap();
         Ok(())
