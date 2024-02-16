@@ -18,8 +18,8 @@ pub struct LocalServer {
 
     tcprsp_recver: std::sync::mpsc::Receiver<ForwardControlResponse>,
     udprsp_recver: std::sync::mpsc::Receiver<ForwardControlResponse>,
-    tcpmap_handle: thread::JoinHandle<()>,
-    udpmap_handle: thread::JoinHandle<()>,
+    _tcpmap_handle: thread::JoinHandle<()>,
+    _udpmap_handle: thread::JoinHandle<()>,
 }
 
 impl LocalServer {
@@ -36,19 +36,11 @@ impl LocalServer {
             udpctl_sender,
             tcprsp_recver,
             udprsp_recver,
-            tcpmap_handle: handle1,
-            udpmap_handle: handle2,
+            _tcpmap_handle: handle1,
+            _udpmap_handle: handle2,
         }
     }
 
-    pub fn add_tcpmap(
-        &mut self,
-        local_addr: String,
-        local_port: u16,
-        remote_addr: String,
-        remote_port: u16,
-    ) {
-    }
 
 
     pub fn add_tcpmap_with_rule(
@@ -97,14 +89,15 @@ impl LocalServer {
             }
         }
 
-        poll.registry().deregister(&mut stream).unwrap();
 
-        let mut tcpmap = tcpmap::TcpMap::new(
+
+        let  tcpmap = tcpmap::TcpMap::new(
             local_addr,
             local_port,
             remote_host,
             remote_tcpmap_port,
             stream,
+            poll,
         );
         let item = ForwardItem::<TcpMap> {
             uid: unsafe { TCP_UID },

@@ -1,7 +1,7 @@
 use common::control_flow::controller::Controller;
 use common::{fo_to, get_token_and_buf, RestData};
 use mio::net::{TcpListener, TcpStream};
-use mio::{Interest, Token};
+use mio::{Interest, Poll, Token};
 use std::collections::HashMap;
 use std::io;
 
@@ -85,13 +85,7 @@ impl TcpMap {
         }
     }
 
-    pub fn try_new(mut control_channel: TcpStream, pub_port: u16) -> io::Result<Self> {
-        let poll = mio::Poll::new()?;
-        poll.registry().register(
-            &mut control_channel,
-            CONTROL_CHANNEL_TOKEN,
-            Interest::READABLE,
-        )?;
+    pub fn try_new(mut control_channel: TcpStream, poll:Poll, pub_port: u16) -> io::Result<Self> {
 
         let config = crate::config::CONFIG.lock().unwrap();
         let mut lit_clt =

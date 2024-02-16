@@ -36,16 +36,11 @@ impl TcpMap {
         remote_addr: String,
         remote_port: u16,
         mut control_stream: TcpStream,
+        mut poll: mio::Poll,
     ) -> TcpMap {
-        let poll = mio::Poll::new().unwrap();
+
         let events = mio::Events::with_capacity(EVENTS_CAPACITY);
-        poll.registry()
-            .register(
-                &mut control_stream,
-                CONTROL_STREAM_TOKEN,
-                mio::Interest::READABLE,
-            )
-            .unwrap();
+
 
         TcpMap {
             local_addr,

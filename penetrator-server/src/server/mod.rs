@@ -6,17 +6,53 @@ use crate::{
     control_flow::{recv_notify, NOTIFY_AUTHEN_RESP},
 };
 use common::{
-    control_flow::notify_authen, ForwardControlMsg, ForwardControlResponse, ForwardItem,
-    ServerTrait,
+    control_flow::notify_authen, rule::Rule, ForwardControlMsg, ForwardControlResponse, ForwardItem, ServerTrait
 };
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
 
-use std::sync::mpsc::Sender;
+use std::{ sync::mpsc::Sender, time::Duration};
 
 use common::{forward, MapTrait};
 
 use self::{tcpmap::TcpMap, udpmap::UdpMap};
+
+struct Pair {
+    stream: TcpStream,
+    poll: Poll,
+    _events: Events,
+    pub rule:Option<Rule>,
+}
+const DEFAULT_CONTROL_TOKEN: Token = Token(0);
+impl Pair {
+    pub fn new(stream: TcpStream, poll: Poll) -> Self {
+        Self { stream, poll, _events: Events::with_capacity(1),rule:None}
+    }
+    pub fn register(&mut self) {
+        self.poll
+            .registry()
+            .register(&mut self.stream, DEFAULT_CONTROL_TOKEN, Interest::READABLE)
+            .unwrap();
+
+        notify_authen(&mut self.stream).unwrap();
+    }
+
+    fn is_ok(&mut self) -> Result<(),()> {
+
+        self.poll.poll(&mut self._events, Some(Duration::from_millis(10))).unwrap();
+        for event in self._events.iter() {
+            if event.token() == DEFAULT_CONTROL_TOKEN {
+                let msg = recv_notify(&mut self.stream).unwrap();
+                if msg.flag == NOTIFY_AUTHEN_RESP {
+                    let rule=Rule::from_u8(&msg.data).unwrap();
+                    self.rule=Some(rule);
+                }
+
+            }
+        }
+        Err(())
+    }
+}
 
 pub struct Server {
     pub listener: TcpListener,
@@ -72,91 +108,81 @@ impl Server {
         let mut poll = Poll::new().unwrap();
         let mut events = Events::with_capacity(EVENTS_CAPACITY);
         let server_token = Token(0);
-        let mut token_record = 0u32;
-        let mut rest_token_list = vec![];
+
         poll.registry()
             .register(&mut self.listener, server_token, Interest::READABLE)
             .unwrap();
 
-        let mut token_socket_map = std::collections::HashMap::new();
+        let mut pair_list: Vec<Pair> = Vec::new();
 
         loop {
-            poll.poll(&mut events, None).unwrap();
+            poll.poll(&mut events, Some(Duration::from_millis(20))).unwrap();
             for event in events.iter() {
                 match event.token() {
                     Token(0) => {
-                        while let Ok((mut stream, _)) = self.listener.accept() {
-                            let token = if rest_token_list.is_empty() {
-                                token_record += 1;
-                                Token(token_record as usize)
-                            } else {
-                                Token(rest_token_list.pop().unwrap() as usize)
-                            };
-                            poll.registry()
-                                .register(&mut stream, token, Interest::READABLE)
-                                .unwrap();
-
-                            notify_authen(&mut stream).unwrap();
-                            token_socket_map.insert(token, stream);
+                        while let Ok((stream, _)) = self.listener.accept() {
+                            let mut pair = Pair::new(stream, Poll::new().unwrap());
+                            pair.register();
+                            pair_list.push(pair);
                         }
                     }
-
-                    token => {
-                        let mut stream = token_socket_map.remove(&token).unwrap();
-                        let msg: Option<common::control_flow::ControlMsg> =
-                            recv_notify(&mut stream).ok();
-                        match msg {
-                            Some(msg) => {
-                                poll.registry().deregister(&mut stream).unwrap();
-                                rest_token_list.push(token.0);
-
-                                Server::handle_control_msg(
-                                    stream,
-                                    msg,
-                                    tcpctl_sender.clone(),
-                                    udpctl_sender.clone(),
-                                );
-                            }
-                            None => {
-                                poll.registry().deregister(&mut stream).unwrap();
-                                rest_token_list.push(token.0);
-                                TcpStream::shutdown(&stream, std::net::Shutdown::Both).unwrap();
-                            }
-                        }
-                    }
+                    _ => {}
                 }
             }
+            let mut ok_list=vec![];
+            for (i,pair) in pair_list.iter_mut().enumerate() {
+                if let Ok(())=pair.is_ok(){
+                    ok_list.push(i);
+                }
+            }
+            for i in ok_list.iter().rev(){
+                let pair=pair_list.swap_remove(*i);
+                let rule=pair.rule.unwrap();
+                Self::distribute_connection(
+                    tcpctl_sender.clone(),
+                    udpctl_sender.clone(),
+                    pair.stream,
+                    pair.poll,
+                    rule,
+                );
+            }   
+
+
+
+
+
         }
     }
 
-    fn handle_control_msg(
-        stream: TcpStream,
-        msg: common::control_flow::ControlMsg,
-        tcpctl_sender: Sender<ForwardControlMsg<TcpMap>>,
-        udpctl_sender: Sender<ForwardControlMsg<UdpMap>>,
-    ) {
-        match msg.flag {
-            NOTIFY_AUTHEN_RESP => {
-                let rule = config::Rule::from_u8(&msg.data).unwrap();
-                let is_ok = crate::authentification::check(&rule).unwrap();
-                if is_ok {
-                    Self::distribute_connection(tcpctl_sender, udpctl_sender, stream, rule);
-                }
-            }
-            _ => {}
-        }
-    }
+    // fn handle_control_msg(
+    //     stream: TcpStream,
+    //     msg: common::control_flow::ControlMsg,
+    //     tcpctl_sender: Sender<ForwardControlMsg<TcpMap>>,
+    //     udpctl_sender: Sender<ForwardControlMsg<UdpMap>>,
+    // ) {
+    //     match msg.flag {
+    //         NOTIFY_AUTHEN_RESP => {
+    //             let rule = config::Rule::from_u8(&msg.data).unwrap();
+    //             let is_ok = crate::authentification::check(&rule).unwrap();
+    //             if is_ok {
+    //                 Self::distribute_connection(tcpctl_sender, udpctl_sender, stream, rule);
+    //             }
+    //         }
+    //         _ => {}
+    //     }
+    // }
 
     pub fn distribute_connection(
         tcpmap_sender: Sender<ForwardControlMsg<TcpMap>>,
         udpctl_sender: Sender<ForwardControlMsg<UdpMap>>,
         stream: TcpStream,
+        poll:Poll,
         rule: config::Rule,
     ) {
         let protocol = rule.protocol.as_str();
         match protocol {
             "tcp" => {
-                let tcpmap = match tcpmap::TcpMap::try_new(stream, rule.port_to_pub) {
+                let tcpmap = match tcpmap::TcpMap::try_new(stream,poll, rule.port_to_pub) {
                     Ok(tcpmap) => tcpmap,
                     Err(e) => {
                         dbg!("Error:{}", e);
