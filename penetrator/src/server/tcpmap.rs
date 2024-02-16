@@ -35,8 +35,8 @@ impl TcpMap {
         local_port: u16,
         remote_addr: String,
         remote_port: u16,
-        mut control_stream: TcpStream,
-        mut poll: mio::Poll,
+        control_stream: TcpStream,
+        poll: mio::Poll,
     ) -> TcpMap {
 
         let events = mio::Events::with_capacity(EVENTS_CAPACITY);

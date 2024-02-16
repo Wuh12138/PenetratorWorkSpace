@@ -1,4 +1,4 @@
-use common::control_flow::controller::Controller;
+use common::control_flow::controller::{self, Controller};
 use common::{fo_to, get_token_and_buf, RestData};
 use mio::net::{TcpListener, TcpStream};
 use mio::{Interest, Poll, Token};
@@ -85,7 +85,7 @@ impl TcpMap {
         }
     }
 
-    pub fn try_new(mut control_channel: TcpStream, poll:Poll, pub_port: u16) -> io::Result<Self> {
+    pub fn try_new(mut controller:Controller, poll:Poll, pub_port: u16) -> io::Result<Self> {
 
         let config = crate::config::CONFIG.lock().unwrap();
         let mut lit_clt =
@@ -94,7 +94,7 @@ impl TcpMap {
             .register(&mut lit_clt, LIT_CLT_TOKEN, Interest::READABLE)?;
 
         let port = lit_clt.local_addr().unwrap().port();
-        common::control_flow::notify_port(&mut control_channel, port)?;
+        common::control_flow::notify_port(&mut controller.stream, port)?;
 
         let mut lit_pub = TcpListener::bind(
             format!("{}:{}", config.listen_addr, pub_port)
@@ -114,7 +114,7 @@ impl TcpMap {
         ];
 
         Ok(Self {
-            controller: Controller::new(control_channel),
+            controller,
             poll,
             events,
             lit_pub,

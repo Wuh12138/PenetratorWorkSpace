@@ -3,22 +3,22 @@ pub mod udpmap;
 
 use crate::{
     config::{self},
-    control_flow::{recv_notify, NOTIFY_AUTHEN_RESP},
+    control_flow:: NOTIFY_AUTHEN_RESP,
 };
 use common::{
-    control_flow::notify_authen, rule::Rule, ForwardControlMsg, ForwardControlResponse, ForwardItem, ServerTrait
+    control_flow::{controller::Controller, notify_authen}, rule::Rule, ForwardControlMsg, ForwardControlResponse, ForwardItem, ServerTrait
 };
 use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token};
 
-use std::{ sync::mpsc::Sender, time::Duration};
+use std::{ collections::VecDeque, sync::mpsc::Sender, time::Duration};
 
 use common::{forward, MapTrait};
 
 use self::{tcpmap::TcpMap, udpmap::UdpMap};
 
 struct Pair {
-    stream: TcpStream,
+    controller: Controller,
     poll: Poll,
     _events: Events,
     pub rule:Option<Rule>,
@@ -26,31 +26,41 @@ struct Pair {
 const DEFAULT_CONTROL_TOKEN: Token = Token(0);
 impl Pair {
     pub fn new(stream: TcpStream, poll: Poll) -> Self {
-        Self { stream, poll, _events: Events::with_capacity(1),rule:None}
+        Self { controller:Controller::new(stream), poll, _events: Events::with_capacity(1),rule:None}
     }
     pub fn register(&mut self) {
         self.poll
             .registry()
-            .register(&mut self.stream, DEFAULT_CONTROL_TOKEN, Interest::READABLE)
+            .register(&mut self.controller.stream, DEFAULT_CONTROL_TOKEN, Interest::READABLE)
             .unwrap();
 
-        notify_authen(&mut self.stream).unwrap();
+        notify_authen(&mut self.controller.stream).unwrap();
     }
-
-    fn is_ok(&mut self) -> Result<(),()> {
+    
+    // Err(1) connection closed
+    // Err(2) no response
+    fn is_ok(&mut self) -> Result<(),u8> {
 
         self.poll.poll(&mut self._events, Some(Duration::from_millis(10))).unwrap();
         for event in self._events.iter() {
             if event.token() == DEFAULT_CONTROL_TOKEN {
-                let msg = recv_notify(&mut self.stream).unwrap();
-                if msg.flag == NOTIFY_AUTHEN_RESP {
-                    let rule=Rule::from_u8(&msg.data).unwrap();
-                    self.rule=Some(rule);
+                let msg_vec = match self.controller.parse() {
+                    Ok(Some(msg_vec)) => msg_vec,
+                    Ok(None) =>return  Err(1),
+                    Err(_) => return Err(1),
+                };
+                for msg in msg_vec {
+                    if msg.flag == NOTIFY_AUTHEN_RESP {
+                        dbg!("authen success");
+                        let rule = Rule::from_u8(&msg.data).unwrap();
+                        self.rule=Some(rule);
+                        return Ok(());
+                    }
                 }
 
             }
         }
-        Err(())
+        Err(2)
     }
 }
 
@@ -67,7 +77,7 @@ pub struct Server {
 const EVENTS_CAPACITY: usize = 32;
 
 static mut TCP_UID: u128 = 0;
-static mut UDP_UID: u128 = 0;
+static mut _UDP_UID: u128 = 0;
 impl Server {
     pub fn new() -> Self {
         let glconfig = crate::config::CONFIG.lock().unwrap();
@@ -113,7 +123,7 @@ impl Server {
             .register(&mut self.listener, server_token, Interest::READABLE)
             .unwrap();
 
-        let mut pair_list: Vec<Pair> = Vec::new();
+        let mut pair_que=VecDeque::new();
 
         loop {
             poll.poll(&mut events, Some(Duration::from_millis(20))).unwrap();
@@ -123,66 +133,54 @@ impl Server {
                         while let Ok((stream, _)) = self.listener.accept() {
                             let mut pair = Pair::new(stream, Poll::new().unwrap());
                             pair.register();
-                            pair_list.push(pair);
+                            pair_que.push_back(pair);
                         }
                     }
                     _ => {}
                 }
             }
-            let mut ok_list=vec![];
-            for (i,pair) in pair_list.iter_mut().enumerate() {
-                if let Ok(())=pair.is_ok(){
-                    ok_list.push(i);
+            
+            for _ in 0.. pair_que.len(){
+                let mut pair=pair_que.pop_front().unwrap();
+                match pair.is_ok(){
+                    Ok(())=>{
+                        let rule=pair.rule.unwrap();
+                        Self::distribute_connection(
+                            tcpctl_sender.clone(),
+                            udpctl_sender.clone(),
+                            pair.controller,
+                            pair.poll,
+                            rule,
+                        );
+                    }
+                    Err(1)=>{
+                        // connection closed
+                    }
+                    Err(2)=>{
+                        // no response
+                        pair_que.push_back(pair);
+                    }
+                    _=>{}
                 }
             }
-            for i in ok_list.iter().rev(){
-                let pair=pair_list.swap_remove(*i);
-                let rule=pair.rule.unwrap();
-                Self::distribute_connection(
-                    tcpctl_sender.clone(),
-                    udpctl_sender.clone(),
-                    pair.stream,
-                    pair.poll,
-                    rule,
-                );
-            }   
-
-
-
 
 
         }
     }
 
-    // fn handle_control_msg(
-    //     stream: TcpStream,
-    //     msg: common::control_flow::ControlMsg,
-    //     tcpctl_sender: Sender<ForwardControlMsg<TcpMap>>,
-    //     udpctl_sender: Sender<ForwardControlMsg<UdpMap>>,
-    // ) {
-    //     match msg.flag {
-    //         NOTIFY_AUTHEN_RESP => {
-    //             let rule = config::Rule::from_u8(&msg.data).unwrap();
-    //             let is_ok = crate::authentification::check(&rule).unwrap();
-    //             if is_ok {
-    //                 Self::distribute_connection(tcpctl_sender, udpctl_sender, stream, rule);
-    //             }
-    //         }
-    //         _ => {}
-    //     }
-    // }
+
 
     pub fn distribute_connection(
         tcpmap_sender: Sender<ForwardControlMsg<TcpMap>>,
-        udpctl_sender: Sender<ForwardControlMsg<UdpMap>>,
-        stream: TcpStream,
+        _udpctl_sender: Sender<ForwardControlMsg<UdpMap>>,
+        controller: Controller,
         poll:Poll,
         rule: config::Rule,
     ) {
         let protocol = rule.protocol.as_str();
         match protocol {
             "tcp" => {
-                let tcpmap = match tcpmap::TcpMap::try_new(stream,poll, rule.port_to_pub) {
+                let tcpmap = match tcpmap::TcpMap::try_new(controller,poll, rule.port_to_pub) {
                     Ok(tcpmap) => tcpmap,
                     Err(e) => {
                         dbg!("Error:{}", e);
@@ -199,15 +197,16 @@ impl Server {
                 tcpmap_sender.send(ForwardControlMsg::Add(item)).unwrap();
             }
             "udp" => {
-                let udpmap = udpmap::UdpMap::new(stream, rule.port_to_pub);
-                let item = ForwardItem::<UdpMap> {
-                    uid: unsafe { UDP_UID },
-                    item: udpmap,
-                };
-                unsafe {
-                    UDP_UID += 1;
-                }
-                udpctl_sender.send(ForwardControlMsg::Add(item)).unwrap();
+                // let udpmap = udpmap::UdpMap::new(stream, rule.port_to_pub);
+                // let item = ForwardItem::<UdpMap> {
+                //     uid: unsafe { UDP_UID },
+                //     item: udpmap,
+                // };
+                // unsafe {
+                //     UDP_UID += 1;
+                // }
+                // udpctl_sender.send(ForwardControlMsg::Add(item)).unwrap();
+                todo!("udp");
             }
             _ => {}
         }
