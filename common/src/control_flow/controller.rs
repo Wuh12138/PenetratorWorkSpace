@@ -95,4 +95,12 @@ impl Controller {
             }
         }
     }
+
+    pub fn keep_alive(&mut self) -> std::io::Result<()> {
+        let msg = ControlMsg {
+            flag: KEEP_ALIVE,
+            data: vec![],
+        };
+        notify(&mut self.stream, &msg)
+    }
 }

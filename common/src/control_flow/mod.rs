@@ -12,6 +12,9 @@ pub const NOTIFY_PORT_TO_NEW_CONN_RESP: u16 = 0x0004u16;
 pub const NOTIFY_NEW_TCP_MAP: u16 = 0x0005u16;
 pub const NOTIFY_NEW_TCP_MAP_RESP: u16 = 0x0006u16;
 
+
+pub const KEEP_ALIVE: u16 = 0xF000u16;
+
 #[derive(Debug)]
 pub struct ControlMsg {
     pub flag: u16,

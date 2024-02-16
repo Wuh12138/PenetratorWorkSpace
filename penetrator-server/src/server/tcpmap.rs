@@ -1,4 +1,5 @@
 use common::control_flow::controller:: Controller;
+use common::control_flow::KEEP_ALIVE;
 use common::{fo_to, get_token_and_buf, RestData};
 use mio::net::{TcpListener, TcpStream};
 use mio::{Interest, Poll, Token};
@@ -155,6 +156,9 @@ impl super::MapTrait for TcpMap {
                     for msg in msg_vec {
                         match msg.flag {
                             common::control_flow::NOTIFY_PORT_TO_NEW_CONN_RESP => {}
+                            KEEP_ALIVE=>{
+                                
+                            }
                             _ => {}
                         }
                     }

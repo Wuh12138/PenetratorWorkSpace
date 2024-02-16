@@ -10,6 +10,7 @@ pub mod rule;
 
 pub const BUF_SIZE: usize = 1024 * 100;
 pub const TIMEOUT: std::time::Duration = std::time::Duration::from_micros(50);
+pub const KEEP_ALIVE_INTERVAL: std::time::Duration = std::time::Duration::from_secs(30);
 
 pub struct RestData {
     pub indxs: usize,

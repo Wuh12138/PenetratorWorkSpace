@@ -1,5 +1,5 @@
 use crate::server::MapTrait;
-use common::control_flow::ControlMsg;
+use common::control_flow::{ControlMsg, KEEP_ALIVE};
 use common::{fo_to, get_token_and_buf, RestData, BUF_SIZE};
 use mio::net::TcpStream;
 use mio::Token;
@@ -24,6 +24,7 @@ pub struct TcpMap {
 
     // flag
     is_valid: bool,
+    last_keep_alive: std::time::Instant,
 }
 
 const EVENTS_CAPACITY: usize = 32;
@@ -62,6 +63,7 @@ impl TcpMap {
             rest_token_list: Vec::new(),
 
             is_valid: true,
+            last_keep_alive: std::time::Instant::now(),
         }
     }
 
@@ -121,6 +123,9 @@ impl TcpMap {
                 *remote_port = u16::from_be_bytes(data.as_slice().try_into().unwrap());
                 //common::control_flow::ack_notify_port(control_stream).unwrap();
             }
+            KEEP_ALIVE => {
+                // do nothing
+            }
             _ => {}
         }
     }
@@ -128,10 +133,22 @@ impl TcpMap {
 
 impl MapTrait for TcpMap {
     fn update_once(&mut self) -> std::io::Result<()> {
+        //keep alive
+        if self.last_keep_alive.elapsed() > common::KEEP_ALIVE_INTERVAL {
+            self.controller.keep_alive().unwrap_or_else(|e|{
+                dbg!(e);
+                self.is_valid=false;
+                return;
+            });
+            self.last_keep_alive = std::time::Instant::now();
+        }
+
         self.poll.poll(&mut self.events, Some(common::TIMEOUT)).unwrap(); 
         for event in self.events.iter() {
             match event.token() {
                 CONTROL_STREAM_TOKEN => {
+
+                    self.last_keep_alive = std::time::Instant::now();
 
                     let msg_vec = match self.controller.parse() {
                         Ok(Some(msg_vec)) => msg_vec,
