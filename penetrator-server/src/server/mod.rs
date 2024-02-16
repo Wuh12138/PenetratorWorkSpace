@@ -47,11 +47,13 @@ impl Pair {
                 let msg_vec = match self.controller.parse() {
                     Ok(Some(msg_vec)) => msg_vec,
                     Ok(None) =>return  Err(1),
-                    Err(_) => return Err(1),
+                    Err(e) => {
+                        dbg!(e);
+                        return Err(1);
+                    }
                 };
                 for msg in msg_vec {
                     if msg.flag == NOTIFY_AUTHEN_RESP {
-                        dbg!("authen success");
                         let rule = Rule::from_u8(&msg.data).unwrap();
                         self.rule=Some(rule);
                         return Ok(());

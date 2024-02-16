@@ -1,4 +1,4 @@
-use common::control_flow::controller::{self, Controller};
+use common::control_flow::controller:: Controller;
 use common::{fo_to, get_token_and_buf, RestData};
 use mio::net::{TcpListener, TcpStream};
 use mio::{Interest, Poll, Token};
@@ -142,6 +142,7 @@ impl super::MapTrait for TcpMap {
                         Ok(Some(msg_vec)) => msg_vec,
                         Ok(None) => {
                             self.is_valid = false;
+                            dbg!("control channel closed");
                             return Ok(());
                         }
                         Err(e) => {
